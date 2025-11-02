@@ -1,8 +1,10 @@
 package com.ironcore.ironcorebackend.controller;
 
 import com.ironcore.ironcorebackend.entity.LoginRequest;
+import com.ironcore.ironcorebackend.entity.LoginResponse;
 import com.ironcore.ironcorebackend.entity.User;
 import com.ironcore.ironcorebackend.repository.UserRepository;
+import com.ironcore.ironcorebackend.util.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,12 +22,27 @@ public class LoginController {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private JwtUtil jwtUtil;
+
     @PostMapping("/login")
-    public ResponseEntity<String> loginUser(@RequestBody LoginRequest request) {
+    public ResponseEntity<?> loginUser(@RequestBody LoginRequest request) {
         User user = userRepository.findByEmail(request.getEmail());
         
         if (user != null && passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            return ResponseEntity.ok("Login successful!");
+            // Generate JWT token
+            String token = jwtUtil.generateToken(user.getEmail(), user.getId(), user.getUsername());
+            
+            // Create response with token and user info
+            LoginResponse response = new LoginResponse(
+                token,
+                user.getId(),
+                user.getUsername(),
+                user.getEmail(),
+                "Login successful!"
+            );
+            
+            return ResponseEntity.ok(response);
         }
         
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
