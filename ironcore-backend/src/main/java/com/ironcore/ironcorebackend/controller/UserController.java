@@ -4,9 +4,13 @@ import com.ironcore.ironcorebackend.entity.User;
 import com.ironcore.ironcorebackend.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -26,10 +30,21 @@ public class UserController {
         if (userOptional.isPresent()) {
             User user = userOptional.get();
             
-            // Create response map with only username and email
+            // Create response map with username, email, and profile picture
             Map<String, String> response = new HashMap<>();
             response.put("username", user.getUsername());
             response.put("email", user.getEmail());
+            
+            // Convert binary data to Base64 string for frontend
+            if (user.getProfilePicture() != null && user.getProfilePicture().length > 0) {
+                String base64Image = Base64.getEncoder().encodeToString(user.getProfilePicture());
+                // Include MIME type prefix for img src
+                String mimeType = user.getProfilePictureMimeType() != null ? 
+                    user.getProfilePictureMimeType() : "image/jpeg";
+                response.put("profilePicture", "data:" + mimeType + ";base64," + base64Image);
+            } else {
+                response.put("profilePicture", "");
+            }
             
             return ResponseEntity.ok(response);
         }
@@ -112,6 +127,90 @@ public class UserController {
         response.put("username", user.getUsername());
         response.put("email", user.getEmail());
         response.put("message", "Profile updated successfully");
+        
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{userId}/profile-picture")
+    public ResponseEntity<?> uploadProfilePicture(
+            @PathVariable Long userId,
+            @RequestParam("profilePicture") MultipartFile file) {
+        
+        Optional<User> userOptional = userRepository.findById(userId);
+        
+        if (!userOptional.isPresent()) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "User not found");
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+        }
+        
+        // Validate file
+        if (file.isEmpty()) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Please select a file to upload");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        }
+        
+        // Validate file type
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Only image files are allowed");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        }
+        
+        // Validate file size (5MB max)
+        if (file.getSize() > 5 * 1024 * 1024) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "File size should not exceed 5MB");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        }
+        
+        try {
+            // Convert file to byte array
+            byte[] imageBytes = file.getBytes();
+            
+            // Update user with binary data
+            User user = userOptional.get();
+            user.setProfilePicture(imageBytes);
+            user.setProfilePictureMimeType(contentType);
+            userRepository.save(user);
+            
+            // Convert to Base64 for immediate response
+            String base64Image = Base64.getEncoder().encodeToString(imageBytes);
+            String dataUrl = "data:" + contentType + ";base64," + base64Image;
+            
+            // Return response
+            Map<String, String> response = new HashMap<>();
+            response.put("message", "Profile picture uploaded successfully");
+            response.put("profilePictureUrl", dataUrl);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (IOException e) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Failed to upload file: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    @DeleteMapping("/{userId}/profile-picture")
+    public ResponseEntity<?> deleteProfilePicture(@PathVariable Long userId) {
+        Optional<User> userOptional = userRepository.findById(userId);
+        
+        if (!userOptional.isPresent()) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "User not found");
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+        }
+        
+        User user = userOptional.get();
+        user.setProfilePicture(null);
+        user.setProfilePictureMimeType(null);
+        userRepository.save(user);
+        
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Profile picture deleted successfully");
         
         return ResponseEntity.ok(response);
     }
