@@ -1,5 +1,6 @@
 package com.ironcore.ironcorebackend.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.util.List;
 
@@ -26,9 +27,11 @@ public class ClassEntity {
 
     // Relationships
     @OneToMany(mappedBy = "classEntity")
+    @JsonIgnore  // ⭐ ADD THIS - Prevent circular reference
     private List<Schedule> schedules;
 
     @OneToMany(mappedBy = "classEntity")
+    @JsonIgnore  // ⭐ ADD THIS - Prevent circular reference
     private List<Transaction> transactions;
 
     // Constructors
@@ -43,7 +46,7 @@ public class ClassEntity {
         this.price = price;
     }
 
-    // Getters and Setters
+    // Getters and Setters (keep all existing ones)
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 

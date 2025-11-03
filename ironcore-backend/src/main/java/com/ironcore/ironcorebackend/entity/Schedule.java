@@ -1,5 +1,6 @@
 package com.ironcore.ironcorebackend.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDate;
 import java.util.List;
@@ -14,6 +15,7 @@ public class Schedule {
 
     @ManyToOne
     @JoinColumn(name = "class_id", nullable = false)
+    @JsonIgnore  // ⭐ ADD THIS - Prevent circular reference
     private ClassEntity classEntity;
 
     private String day;
@@ -25,9 +27,10 @@ public class Schedule {
     private int slotsAvailable;
 
     @OneToMany(mappedBy = "schedule")
+    @JsonIgnore  // ⭐ ADD THIS - Prevent circular reference
     private List<Transaction> transactions;
 
-    // Constructors
+    // Keep all existing constructors, getters, and setters
     public Schedule() {}
 
     public Schedule(ClassEntity classEntity, String day, String timeSlot, LocalDate date, int slotsAvailable) {
@@ -38,7 +41,6 @@ public class Schedule {
         this.slotsAvailable = slotsAvailable;
     }
 
-    // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
