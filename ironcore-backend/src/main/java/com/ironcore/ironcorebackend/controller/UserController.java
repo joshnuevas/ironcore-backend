@@ -2,6 +2,7 @@ package com.ironcore.ironcorebackend.controller;
 
 import com.ironcore.ironcorebackend.entity.User;
 import com.ironcore.ironcorebackend.repository.UserRepository;
+import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -15,13 +16,54 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = "http://localhost:3000", allowCredentials = "true")
 @RestController
 @RequestMapping("/api/users")
 public class UserController {
 
     @Autowired
     private UserRepository userRepository;
+
+    // ⭐ NEW ENDPOINT - Get current logged-in user
+    @GetMapping("/me")
+    public ResponseEntity<?> getCurrentUser(HttpSession session) {
+        // Get userId from session (stored during login)
+        Long userId = (Long) session.getAttribute("userId");
+        
+        if (userId == null) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Not authenticated. Please log in.");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+        }
+        
+        Optional<User> userOptional = userRepository.findById(userId);
+        
+        if (!userOptional.isPresent()) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "User not found");
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+        }
+        
+        User user = userOptional.get();
+        
+        // Return user data
+        Map<String, Object> response = new HashMap<>();
+        response.put("id", user.getId());  // Include ID for transactions
+        response.put("username", user.getUsername());
+        response.put("email", user.getEmail());
+        
+        // Include profile picture if exists
+        if (user.getProfilePicture() != null && user.getProfilePicture().length > 0) {
+            String base64Image = Base64.getEncoder().encodeToString(user.getProfilePicture());
+            String mimeType = user.getProfilePictureMimeType() != null ? 
+                user.getProfilePictureMimeType() : "image/jpeg";
+            response.put("profilePicture", "data:" + mimeType + ";base64," + base64Image);
+        } else {
+            response.put("profilePicture", "");
+        }
+        
+        return ResponseEntity.ok(response);
+    }
 
     @GetMapping("/{userId}")
     public ResponseEntity<?> getUser(@PathVariable Long userId) {

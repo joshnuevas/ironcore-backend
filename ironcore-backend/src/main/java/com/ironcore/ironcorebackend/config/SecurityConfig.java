@@ -14,18 +14,17 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .cors(Customizer.withDefaults()) // <-- ADD THIS
-            .csrf(csrf -> csrf.disable())
+            .cors(Customizer.withDefaults())          // enable CORS
+            .csrf(csrf -> csrf.disable())             // disable CSRF for API calls
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/**").permitAll()
-                .anyRequest().authenticated()
-            )
-            .httpBasic(Customizer.withDefaults());
+                .requestMatchers("/api/**").permitAll()  // allow all API endpoints
+                .anyRequest().authenticated()             // protect other routes if needed
+            );
 
         return http.build();
     }
 
-    // Add this bean for password encoding
+    // Password encoder bean
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
