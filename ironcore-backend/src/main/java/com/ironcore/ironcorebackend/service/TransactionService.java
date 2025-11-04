@@ -4,6 +4,7 @@ import com.ironcore.ironcorebackend.dto.TransactionRequest;
 import com.ironcore.ironcorebackend.entity.*;
 import com.ironcore.ironcorebackend.repository.*;
 import org.springframework.stereotype.Service;
+import com.ironcore.ironcorebackend.entity.PaymentStatus;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -28,19 +29,25 @@ public class TransactionService {
     }
 
     public Transaction createTransactionFromRequest(TransactionRequest request) {
-    // Fetch user (required for all transactions)
+        // Fetch user (required for all transactions)
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         // Create the transaction
         Transaction transaction = new Transaction();
         transaction.setUser(user);
+        
+        // ⭐ ADD THIS: Store user email
+        transaction.setUserEmail(user.getEmail());
 
         // Set class entity only if classId is provided (for class enrollments)
         if (request.getClassId() != null) {
             ClassEntity classEntity = classRepository.findById(request.getClassId())
                     .orElseThrow(() -> new RuntimeException("Class not found"));
             transaction.setClassEntity(classEntity);
+            
+            // ⭐ ADD THIS: Store class name
+            transaction.setClassName(classEntity.getName());
         }
 
         // Set schedule only if scheduleId is provided (for class enrollments)
@@ -50,7 +57,7 @@ public class TransactionService {
             transaction.setSchedule(schedule);
         }
 
-        // ⭐ ADD THIS: Set membership type if provided
+        // Set membership type if provided
         if (request.getMembershipType() != null) {
             transaction.setMembershipType(request.getMembershipType());
         }
