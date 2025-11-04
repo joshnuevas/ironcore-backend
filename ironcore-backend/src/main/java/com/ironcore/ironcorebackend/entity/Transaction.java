@@ -16,12 +16,16 @@ public class Transaction {
     private User user;
 
     @ManyToOne
-    @JoinColumn(name = "class_id", nullable = false)
+    @JoinColumn(name = "class_id", nullable = true)
     private ClassEntity classEntity;
 
     @ManyToOne
-    @JoinColumn(name = "schedule_id", nullable = false)
+    @JoinColumn(name = "schedule_id", nullable = true)
     private Schedule schedule;
+
+    // ⭐ ADD THIS: Store membership type (SILVER, GOLD, PLATINUM)
+    @Column(name = "membership_type", nullable = true)
+    private String membershipType;
 
     private double processingFee = 20;
 
@@ -56,6 +60,10 @@ public class Transaction {
 
     public Schedule getSchedule() { return schedule; }
     public void setSchedule(Schedule schedule) { this.schedule = schedule; }
+
+    // ⭐ ADD GETTER AND SETTER
+    public String getMembershipType() { return membershipType; }
+    public void setMembershipType(String membershipType) { this.membershipType = membershipType; }
 
     public double getProcessingFee() { return processingFee; }
     public void setProcessingFee(double processingFee) { this.processingFee = processingFee; }

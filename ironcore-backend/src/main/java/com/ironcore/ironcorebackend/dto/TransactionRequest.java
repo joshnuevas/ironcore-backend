@@ -4,6 +4,7 @@ public class TransactionRequest {
     private Long userId;
     private Long classId;
     private Long scheduleId;
+    private String membershipType;
     private double processingFee;
     private double totalAmount;
     private String paymentMethod;
@@ -13,6 +14,10 @@ public class TransactionRequest {
     public TransactionRequest() {}
 
     // Getters and Setters
+
+    public String getMembershipType() { return membershipType; }
+    public void setMembershipType(String membershipType) { this.membershipType = membershipType; }
+
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }
 

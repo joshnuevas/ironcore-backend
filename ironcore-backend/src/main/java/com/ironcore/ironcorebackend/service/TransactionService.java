@@ -4,8 +4,6 @@ import com.ironcore.ironcorebackend.dto.TransactionRequest;
 import com.ironcore.ironcorebackend.entity.*;
 import com.ironcore.ironcorebackend.repository.*;
 import org.springframework.stereotype.Service;
-import com.ironcore.ironcorebackend.entity.PaymentStatus;
-
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,21 +28,34 @@ public class TransactionService {
     }
 
     public Transaction createTransactionFromRequest(TransactionRequest request) {
-        // Fetch the entities by ID
+    // Fetch user (required for all transactions)
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        
-        ClassEntity classEntity = classRepository.findById(request.getClassId())
-                .orElseThrow(() -> new RuntimeException("Class not found"));
-        
-        Schedule schedule = scheduleRepository.findById(request.getScheduleId())
-                .orElseThrow(() -> new RuntimeException("Schedule not found"));
 
         // Create the transaction
         Transaction transaction = new Transaction();
         transaction.setUser(user);
-        transaction.setClassEntity(classEntity);
-        transaction.setSchedule(schedule);
+
+        // Set class entity only if classId is provided (for class enrollments)
+        if (request.getClassId() != null) {
+            ClassEntity classEntity = classRepository.findById(request.getClassId())
+                    .orElseThrow(() -> new RuntimeException("Class not found"));
+            transaction.setClassEntity(classEntity);
+        }
+
+        // Set schedule only if scheduleId is provided (for class enrollments)
+        if (request.getScheduleId() != null) {
+            Schedule schedule = scheduleRepository.findById(request.getScheduleId())
+                    .orElseThrow(() -> new RuntimeException("Schedule not found"));
+            transaction.setSchedule(schedule);
+        }
+
+        // ⭐ ADD THIS: Set membership type if provided
+        if (request.getMembershipType() != null) {
+            transaction.setMembershipType(request.getMembershipType());
+        }
+
+        // Set common transaction fields
         transaction.setProcessingFee(request.getProcessingFee());
         transaction.setTotalAmount(request.getTotalAmount());
         transaction.setPaymentMethod(request.getPaymentMethod());
