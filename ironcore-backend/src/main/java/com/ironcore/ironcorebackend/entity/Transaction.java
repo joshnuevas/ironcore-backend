@@ -15,7 +15,6 @@ public class Transaction {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    // ⭐ ADD THIS: Store user email at time of transaction
     @Column(name = "user_email", nullable = false)
     private String userEmail;
 
@@ -23,13 +22,22 @@ public class Transaction {
     @JoinColumn(name = "class_id", nullable = true)
     private ClassEntity classEntity;
 
-    // ⭐ ADD THIS: Store class name at time of transaction
     @Column(name = "class_name", nullable = true)
     private String className;
 
     @ManyToOne
     @JoinColumn(name = "schedule_id", nullable = true)
     private Schedule schedule;
+
+    // ⭐ ADD THESE: Store schedule details at time of transaction
+    @Column(name = "schedule_day", nullable = true)
+    private String scheduleDay;
+
+    @Column(name = "schedule_time", nullable = true)
+    private String scheduleTime;
+
+    @Column(name = "schedule_date", nullable = true)
+    private String scheduleDate;
 
     @Column(name = "membership_type", nullable = true)
     private String membershipType;
@@ -62,19 +70,27 @@ public class Transaction {
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }
 
-    // ⭐ ADD GETTER AND SETTER
     public String getUserEmail() { return userEmail; }
     public void setUserEmail(String userEmail) { this.userEmail = userEmail; }
 
     public ClassEntity getClassEntity() { return classEntity; }
     public void setClassEntity(ClassEntity classEntity) { this.classEntity = classEntity; }
 
-    // ⭐ ADD GETTER AND SETTER
     public String getClassName() { return className; }
     public void setClassName(String className) { this.className = className; }
 
     public Schedule getSchedule() { return schedule; }
     public void setSchedule(Schedule schedule) { this.schedule = schedule; }
+
+    // ⭐ ADD GETTERS AND SETTERS
+    public String getScheduleDay() { return scheduleDay; }
+    public void setScheduleDay(String scheduleDay) { this.scheduleDay = scheduleDay; }
+
+    public String getScheduleTime() { return scheduleTime; }
+    public void setScheduleTime(String scheduleTime) { this.scheduleTime = scheduleTime; }
+
+    public String getScheduleDate() { return scheduleDate; }
+    public void setScheduleDate(String scheduleDate) { this.scheduleDate = scheduleDate; }
 
     public String getMembershipType() { return membershipType; }
     public void setMembershipType(String membershipType) { this.membershipType = membershipType; }

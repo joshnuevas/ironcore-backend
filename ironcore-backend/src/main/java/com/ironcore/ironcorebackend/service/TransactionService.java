@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import com.ironcore.ironcorebackend.entity.PaymentStatus;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Service
@@ -37,7 +38,7 @@ public class TransactionService {
         Transaction transaction = new Transaction();
         transaction.setUser(user);
         
-        // ⭐ ADD THIS: Store user email
+        // Store user email
         transaction.setUserEmail(user.getEmail());
 
         // Set class entity only if classId is provided (for class enrollments)
@@ -46,7 +47,7 @@ public class TransactionService {
                     .orElseThrow(() -> new RuntimeException("Class not found"));
             transaction.setClassEntity(classEntity);
             
-            // ⭐ ADD THIS: Store class name
+            // Store class name
             transaction.setClassName(classEntity.getName());
         }
 
@@ -55,6 +56,17 @@ public class TransactionService {
             Schedule schedule = scheduleRepository.findById(request.getScheduleId())
                     .orElseThrow(() -> new RuntimeException("Schedule not found"));
             transaction.setSchedule(schedule);
+            
+            // ⭐ FIXED: Convert LocalDate to String
+            transaction.setScheduleDay(schedule.getDay());
+            transaction.setScheduleTime(schedule.getTimeSlot());
+            
+            // Option 1: Simple toString() - gives "2025-11-04" format
+            transaction.setScheduleDate(schedule.getDate().toString());
+            
+            // Option 2: Custom format - gives "Nov 04, 2025" format (uncomment if preferred)
+            // DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM dd, yyyy");
+            // transaction.setScheduleDate(schedule.getDate().format(formatter));
         }
 
         // Set membership type if provided
