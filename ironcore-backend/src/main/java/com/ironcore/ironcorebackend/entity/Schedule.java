@@ -15,31 +15,30 @@ public class Schedule {
 
     @ManyToOne
     @JoinColumn(name = "class_id", nullable = false)
-    @JsonIgnore  // ⭐ ADD THIS - Prevent circular reference
+    @JsonIgnore
     private ClassEntity classEntity;
 
+    @Column(nullable = false)
     private String day;
 
+    @Column(name = "time_slot", nullable = false)
     private String timeSlot;
 
+    @Column(nullable = false)
     private LocalDate date;
 
-    private int slotsAvailable;
+    @Column(name = "enrolled_count", nullable = false)
+    private Integer enrolledCount = 0;
+
+    // ⭐ New column for per-schedule participant limit
+    @Column(name = "max_participants", nullable = false)
+    private Integer maxParticipants = 15;
 
     @OneToMany(mappedBy = "schedule")
-    @JsonIgnore  // ⭐ ADD THIS - Prevent circular reference
+    @JsonIgnore
     private List<Transaction> transactions;
 
-    // Keep all existing constructors, getters, and setters
     public Schedule() {}
-
-    public Schedule(ClassEntity classEntity, String day, String timeSlot, LocalDate date, int slotsAvailable) {
-        this.classEntity = classEntity;
-        this.day = day;
-        this.timeSlot = timeSlot;
-        this.date = date;
-        this.slotsAvailable = slotsAvailable;
-    }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -56,8 +55,11 @@ public class Schedule {
     public LocalDate getDate() { return date; }
     public void setDate(LocalDate date) { this.date = date; }
 
-    public int getSlotsAvailable() { return slotsAvailable; }
-    public void setSlotsAvailable(int slotsAvailable) { this.slotsAvailable = slotsAvailable; }
+    public Integer getEnrolledCount() { return enrolledCount; }
+    public void setEnrolledCount(Integer enrolledCount) { this.enrolledCount = enrolledCount; }
+
+    public Integer getMaxParticipants() { return maxParticipants; }
+    public void setMaxParticipants(Integer maxParticipants) { this.maxParticipants = maxParticipants; }
 
     public List<Transaction> getTransactions() { return transactions; }
     public void setTransactions(List<Transaction> transactions) { this.transactions = transactions; }
