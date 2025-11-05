@@ -11,6 +11,10 @@ public class Transaction {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // ⭐ ADD THIS: Unique transaction code
+    @Column(name = "transaction_code", nullable = false, unique = true, length = 20)
+    private String transactionCode;
+
     @ManyToOne
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
@@ -29,7 +33,6 @@ public class Transaction {
     @JoinColumn(name = "schedule_id", nullable = true)
     private Schedule schedule;
 
-    // ⭐ ADD THESE: Store schedule details at time of transaction
     @Column(name = "schedule_day", nullable = true)
     private String scheduleDay;
 
@@ -67,6 +70,10 @@ public class Transaction {
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
+    // ⭐ ADD GETTER AND SETTER
+    public String getTransactionCode() { return transactionCode; }
+    public void setTransactionCode(String transactionCode) { this.transactionCode = transactionCode; }
+
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }
 
@@ -82,7 +89,6 @@ public class Transaction {
     public Schedule getSchedule() { return schedule; }
     public void setSchedule(Schedule schedule) { this.schedule = schedule; }
 
-    // ⭐ ADD GETTERS AND SETTERS
     public String getScheduleDay() { return scheduleDay; }
     public void setScheduleDay(String scheduleDay) { this.scheduleDay = scheduleDay; }
 
