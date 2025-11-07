@@ -1,7 +1,6 @@
 package com.ironcore.ironcorebackend.entity;
 
 import jakarta.persistence.*;
-// or if using older Spring Boot: import javax.persistence.*;
 
 @Entity
 @Table(name = "users")
@@ -20,7 +19,12 @@ public class User {
     @Column(name = "password", nullable = false)
     private String password;
 
-    // NEW FIELDS FOR PROFILE PICTURE
+    // NEW FIELD FOR ADMIN STATUS
+    // Explicitly map Java camelCase to database snake_case
+    @Column(name = "is_admin", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
+    private Boolean isAdmin = false;
+
+    // PROFILE PICTURE FIELDS
     @Lob
     @Column(name = "profile_picture", columnDefinition = "LONGBLOB")
     private byte[] profilePicture;
@@ -30,12 +34,14 @@ public class User {
 
     // Constructors
     public User() {
+        this.isAdmin = false;
     }
 
     public User(String username, String email, String password) {
         this.username = username;
         this.email = email;
         this.password = password;
+        this.isAdmin = false;
     }
 
     // Getters and Setters
@@ -71,7 +77,14 @@ public class User {
         this.password = password;
     }
 
-    // NEW GETTERS AND SETTERS FOR PROFILE PICTURE
+    public Boolean getIsAdmin() {
+        return isAdmin;
+    }
+
+    public void setIsAdmin(Boolean isAdmin) {
+        this.isAdmin = isAdmin;
+    }
+
     public byte[] getProfilePicture() {
         return profilePicture;
     }

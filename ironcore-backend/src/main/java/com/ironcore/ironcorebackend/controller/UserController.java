@@ -5,7 +5,6 @@ import com.ironcore.ironcorebackend.repository.UserRepository;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -24,10 +23,9 @@ public class UserController {
     @Autowired
     private UserRepository userRepository;
 
-    // ⭐ NEW ENDPOINT - Get current logged-in user
+    // Get current logged-in user
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(HttpSession session) {
-        // Get userId from session (stored during login)
         Long userId = (Long) session.getAttribute("userId");
         
         if (userId == null) {
@@ -46,13 +44,14 @@ public class UserController {
         
         User user = userOptional.get();
         
-        // Return user data
+        // Return user data including admin status
         Map<String, Object> response = new HashMap<>();
-        response.put("id", user.getId());  // Include ID for transactions
+        response.put("id", user.getId());
         response.put("username", user.getUsername());
         response.put("email", user.getEmail());
+        // Ensure boolean value is returned properly
+        response.put("isAdmin", Boolean.TRUE.equals(user.getIsAdmin()));
         
-        // Include profile picture if exists
         if (user.getProfilePicture() != null && user.getProfilePicture().length > 0) {
             String base64Image = Base64.getEncoder().encodeToString(user.getProfilePicture());
             String mimeType = user.getProfilePictureMimeType() != null ? 
@@ -72,15 +71,13 @@ public class UserController {
         if (userOptional.isPresent()) {
             User user = userOptional.get();
             
-            // Create response map with username, email, and profile picture
-            Map<String, String> response = new HashMap<>();
+            Map<String, Object> response = new HashMap<>();
             response.put("username", user.getUsername());
             response.put("email", user.getEmail());
+            response.put("isAdmin", user.getIsAdmin() != null ? user.getIsAdmin() : false);
             
-            // Convert binary data to Base64 string for frontend
             if (user.getProfilePicture() != null && user.getProfilePicture().length > 0) {
                 String base64Image = Base64.getEncoder().encodeToString(user.getProfilePicture());
-                // Include MIME type prefix for img src
                 String mimeType = user.getProfilePictureMimeType() != null ? 
                     user.getProfilePictureMimeType() : "image/jpeg";
                 response.put("profilePicture", "data:" + mimeType + ";base64," + base64Image);
@@ -110,18 +107,15 @@ public class UserController {
         
         User user = userOptional.get();
         
-        // Update username if provided
         if (updates.containsKey("username")) {
             String newUsername = updates.get("username").trim();
             
-            // Validate username is not empty
             if (newUsername.isEmpty()) {
                 Map<String, String> errorResponse = new HashMap<>();
                 errorResponse.put("message", "Username cannot be empty");
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
             }
             
-            // Check if username is already taken by another user
             User existingUser = userRepository.findByUsername(newUsername);
             if (existingUser != null && !existingUser.getId().equals(userId)) {
                 Map<String, String> errorResponse = new HashMap<>();
@@ -132,25 +126,21 @@ public class UserController {
             user.setUsername(newUsername);
         }
         
-        // Update email if provided
         if (updates.containsKey("email")) {
             String newEmail = updates.get("email").trim();
             
-            // Validate email is not empty
             if (newEmail.isEmpty()) {
                 Map<String, String> errorResponse = new HashMap<>();
                 errorResponse.put("message", "Email cannot be empty");
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
             }
             
-            // Basic email format validation
             if (!newEmail.matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
                 Map<String, String> errorResponse = new HashMap<>();
                 errorResponse.put("message", "Invalid email format");
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
             }
             
-            // Check if email is already taken by another user
             User existingUser = userRepository.findByEmail(newEmail);
             if (existingUser != null && !existingUser.getId().equals(userId)) {
                 Map<String, String> errorResponse = new HashMap<>();
@@ -161,10 +151,8 @@ public class UserController {
             user.setEmail(newEmail);
         }
         
-        // Save updated user
         userRepository.save(user);
         
-        // Return updated user data
         Map<String, String> response = new HashMap<>();
         response.put("username", user.getUsername());
         response.put("email", user.getEmail());
@@ -186,14 +174,12 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
         }
         
-        // Validate file
         if (file.isEmpty()) {
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("message", "Please select a file to upload");
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
         }
         
-        // Validate file type
         String contentType = file.getContentType();
         if (contentType == null || !contentType.startsWith("image/")) {
             Map<String, String> errorResponse = new HashMap<>();
@@ -201,7 +187,6 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
         }
         
-        // Validate file size (5MB max)
         if (file.getSize() > 5 * 1024 * 1024) {
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("message", "File size should not exceed 5MB");
@@ -209,20 +194,16 @@ public class UserController {
         }
         
         try {
-            // Convert file to byte array
             byte[] imageBytes = file.getBytes();
             
-            // Update user with binary data
             User user = userOptional.get();
             user.setProfilePicture(imageBytes);
             user.setProfilePictureMimeType(contentType);
             userRepository.save(user);
             
-            // Convert to Base64 for immediate response
             String base64Image = Base64.getEncoder().encodeToString(imageBytes);
             String dataUrl = "data:" + contentType + ";base64," + base64Image;
             
-            // Return response
             Map<String, String> response = new HashMap<>();
             response.put("message", "Profile picture uploaded successfully");
             response.put("profilePictureUrl", dataUrl);
