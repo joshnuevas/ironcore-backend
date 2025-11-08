@@ -1,13 +1,17 @@
 package com.ironcore.ironcorebackend.controller;
 
 import com.ironcore.ironcorebackend.entity.User;
+import com.ironcore.ironcorebackend.entity.PaymentStatus;
 import com.ironcore.ironcorebackend.repository.UserRepository;
+import com.ironcore.ironcorebackend.repository.ScheduleRepository;
+import com.ironcore.ironcorebackend.repository.TransactionRepository;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -18,6 +22,12 @@ public class AdminController {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private ScheduleRepository scheduleRepository;
+
+    @Autowired
+    private TransactionRepository transactionRepository;
 
     // Helper method to check if user is admin
     private ResponseEntity<?> verifyAdminAccess(HttpSession session) {
@@ -53,32 +63,40 @@ public class AdminController {
         ResponseEntity<?> accessCheck = verifyAdminAccess(session);
         if (accessCheck != null) return accessCheck;
         
-        // Return stats
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("activeSchedules", 12);
-        stats.put("totalMembers", 156);
-        stats.put("availableSlots", 48);
-        stats.put("completedTransactions", 234);
-        
-        return ResponseEntity.ok(stats);
-    }
-    
-    // Add similar verification to all other admin endpoints
-    @GetMapping("/schedules")
-    public ResponseEntity<?> getSchedules(HttpSession session) {
-        ResponseEntity<?> accessCheck = verifyAdminAccess(session);
-        if (accessCheck != null) return accessCheck;
-        
-        // Your schedule logic here
-        return ResponseEntity.ok("Admin schedules data");
-    }
-    
-    @PostMapping("/verify-code")
-    public ResponseEntity<?> verifyCode(@RequestBody Map<String, String> request, HttpSession session) {
-        ResponseEntity<?> accessCheck = verifyAdminAccess(session);
-        if (accessCheck != null) return accessCheck;
-        
-        // Your code verification logic here
-        return ResponseEntity.ok("Code verified");
+        try {
+            Map<String, Object> stats = new HashMap<>();
+            
+            // Count active schedules (all schedules in the system)
+            long activeSchedules = scheduleRepository.count();
+            
+            // Count total registered users (excluding admins)
+            long totalMembers = userRepository.findAll().stream()
+                .filter(user -> !Boolean.TRUE.equals(user.getIsAdmin()))
+                .count();
+            
+            // Calculate available slots (sum of remaining capacity across all schedules)
+            int availableSlots = scheduleRepository.findAll().stream()
+                .mapToInt(schedule -> schedule.getMaxParticipants() - schedule.getEnrolledCount())
+                .sum();
+            
+            // Count completed transactions (transactions with COMPLETED payment status)
+            long completedTransactions = transactionRepository.findAll().stream()
+                .filter(transaction -> transaction.getPaymentStatus() == PaymentStatus.COMPLETED)
+                .count();
+            
+            stats.put("activeSchedules", activeSchedules);
+            stats.put("totalMembers", totalMembers);
+            stats.put("availableSlots", availableSlots);
+            stats.put("completedTransactions", completedTransactions);
+            
+            return ResponseEntity.ok(stats);
+        } catch (Exception e) {
+            System.err.println("Error fetching admin stats: " + e.getMessage());
+            e.printStackTrace();
+            
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Failed to fetch admin statistics");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
     }
 }
