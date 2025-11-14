@@ -18,6 +18,9 @@ public class Schedule {
     @JsonIgnore
     private ClassEntity classEntity;
 
+    @Column(name = "class_name", nullable = true)
+    private String className;
+
     @Column(nullable = false)
     private String day;
 
@@ -30,7 +33,6 @@ public class Schedule {
     @Column(name = "enrolled_count", nullable = false)
     private Integer enrolledCount = 0;
 
-    // ⭐ New column for per-schedule participant limit
     @Column(name = "max_participants", nullable = false)
     private Integer maxParticipants = 15;
 
@@ -40,11 +42,21 @@ public class Schedule {
 
     public Schedule() {}
 
+    // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
     public ClassEntity getClassEntity() { return classEntity; }
-    public void setClassEntity(ClassEntity classEntity) { this.classEntity = classEntity; }
+    public void setClassEntity(ClassEntity classEntity) { 
+        this.classEntity = classEntity;
+        // ⭐ Auto-set className when classEntity is set
+        if (classEntity != null) {
+            this.className = classEntity.getName();
+        }
+    }
+
+    public String getClassName() { return className; }
+    public void setClassName(String className) { this.className = className; }
 
     public String getDay() { return day; }
     public void setDay(String day) { this.day = day; }

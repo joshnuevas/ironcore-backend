@@ -1,10 +1,13 @@
 package com.ironcore.ironcorebackend.controller;
 
 import com.ironcore.ironcorebackend.entity.Schedule;
+import com.ironcore.ironcorebackend.entity.ClassEntity;
 import com.ironcore.ironcorebackend.repository.ScheduleRepository;
+import com.ironcore.ironcorebackend.repository.ClassRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
@@ -16,9 +19,11 @@ import java.util.stream.Collectors;
 public class ScheduleController {
 
     private final ScheduleRepository scheduleRepository;
+    private final ClassRepository classRepository;
 
-    public ScheduleController(ScheduleRepository scheduleRepository) {
+    public ScheduleController(ScheduleRepository scheduleRepository, ClassRepository classRepository) {
         this.scheduleRepository = scheduleRepository;
+        this.classRepository = classRepository;
     }
 
     // Get all schedules with class info
@@ -84,6 +89,41 @@ public class ScheduleController {
         return ResponseEntity.ok(schedule);
     }
 
+    // Create new schedule
+    @PostMapping
+    public ResponseEntity<Map<String, Object>> createSchedule(@RequestBody Map<String, Object> scheduleData) {
+        Long classId = Long.valueOf(scheduleData.get("classId").toString());
+        ClassEntity classEntity = classRepository.findById(classId)
+                .orElseThrow(() -> new RuntimeException("Class not found"));
+        
+        Schedule schedule = new Schedule();
+        schedule.setClassEntity(classEntity);
+        schedule.setClassName(classEntity.getName()); // ⭐ Automatically set className
+        schedule.setDay(scheduleData.get("day").toString());
+        schedule.setTimeSlot(scheduleData.get("timeSlot").toString());
+        schedule.setDate(LocalDate.parse(scheduleData.get("date").toString()));
+        schedule.setMaxParticipants(Integer.parseInt(scheduleData.get("maxParticipants").toString()));
+        schedule.setEnrolledCount(0);
+        
+        Schedule saved = scheduleRepository.save(schedule);
+        
+        // Return with class info
+        Map<String, Object> response = new HashMap<>();
+        response.put("id", saved.getId());
+        response.put("day", saved.getDay());
+        response.put("timeSlot", saved.getTimeSlot());
+        response.put("date", saved.getDate());
+        response.put("enrolledCount", saved.getEnrolledCount());
+        response.put("maxParticipants", saved.getMaxParticipants());
+        
+        Map<String, Object> classInfo = new HashMap<>();
+        classInfo.put("id", saved.getClassEntity().getId());
+        classInfo.put("name", saved.getClassEntity().getName());
+        response.put("classEntity", classInfo);
+        
+        return ResponseEntity.ok(response);
+    }
+
     // Update schedule
     @PutMapping("/{id}")
     public ResponseEntity<Map<String, Object>> updateSchedule(
@@ -113,6 +153,24 @@ public class ScheduleController {
         classInfo.put("name", updated.getClassEntity().getName());
         response.put("classEntity", classInfo);
         
+        return ResponseEntity.ok(response);
+    }
+
+    // Delete schedule
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Map<String, String>> deleteSchedule(@PathVariable Long id) {
+        Schedule schedule = scheduleRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Schedule not found"));
+        
+        // Check if schedule has enrollments
+        if (schedule.getEnrolledCount() > 0) {
+            throw new RuntimeException("Cannot delete schedule with existing enrollments");
+        }
+        
+        scheduleRepository.delete(schedule);
+        
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Schedule deleted successfully");
         return ResponseEntity.ok(response);
     }
 }
