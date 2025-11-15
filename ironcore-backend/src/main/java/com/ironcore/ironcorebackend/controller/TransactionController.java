@@ -99,40 +99,48 @@ public class TransactionController {
     }
 
     // ⭐ UPDATED: Increment enrolled count only when payment is completed
-    @PutMapping("/{transactionId}/status")
-    public ResponseEntity<?> updateTransactionStatus(
-            @PathVariable Long transactionId,
-            @RequestParam String status) {
-        
-        try {
-            Transaction transaction = transactionRepository.findById(transactionId)
-                .orElseThrow(() -> new RuntimeException("Transaction not found"));
+    // ⭐ UPDATED: Set membership dates and increment enrolled count when payment is completed
+        @PutMapping("/{transactionId}/status")
+        public ResponseEntity<?> updateTransactionStatus(
+                @PathVariable Long transactionId,
+                @RequestParam String status) {
             
-            PaymentStatus oldStatus = transaction.getPaymentStatus();
-            PaymentStatus newStatus = PaymentStatus.valueOf(status);
-            
-            transaction.setPaymentStatus(newStatus);
-            
-            // ⭐ NEW: Only increment enrolled count when payment is completed
-            if (newStatus == PaymentStatus.COMPLETED && oldStatus != PaymentStatus.COMPLETED) {
-                // Set payment date
-                transaction.setPaymentDate(LocalDateTime.now());
+            try {
+                Transaction transaction = transactionRepository.findById(transactionId)
+                    .orElseThrow(() -> new RuntimeException("Transaction not found"));
                 
-                // For class enrollments, increment the enrolled count in the schedule
-                if (transaction.getSchedule() != null) {
-                    scheduleRepository.incrementEnrolledCount(transaction.getSchedule().getId());
+                PaymentStatus oldStatus = transaction.getPaymentStatus();
+                PaymentStatus newStatus = PaymentStatus.valueOf(status);
+                
+                transaction.setPaymentStatus(newStatus);
+                
+                // ⭐ NEW: Only increment enrolled count and set dates when payment is completed
+                if (newStatus == PaymentStatus.COMPLETED && oldStatus != PaymentStatus.COMPLETED) {
+                    // Set payment date
+                    transaction.setPaymentDate(LocalDateTime.now());
+                    
+                    // For class enrollments, increment the enrolled count in the schedule
+                    if (transaction.getSchedule() != null) {
+                        scheduleRepository.incrementEnrolledCount(transaction.getSchedule().getId());
+                    }
+                    
+                    // ⭐ NEW: For membership, set activation and expiry dates
+                    if (transaction.getMembershipType() != null && transaction.getMembershipActivatedDate() == null) {
+                        LocalDateTime now = LocalDateTime.now();
+                        transaction.setMembershipActivatedDate(now);
+                        transaction.setMembershipExpiryDate(now.plusMonths(1));
+                    }
                 }
+                
+                transactionRepository.save(transaction);
+                
+                return ResponseEntity.ok(transaction);
+            } catch (Exception e) {
+                e.printStackTrace();
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body("Failed to update transaction: " + e.getMessage());
             }
-            
-            transactionRepository.save(transaction);
-            
-            return ResponseEntity.ok(transaction);
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body("Failed to update transaction: " + e.getMessage());
         }
-    }
 
     @GetMapping("/check-active-enrollment")
     public ResponseEntity<?> checkActiveEnrollment(
@@ -289,6 +297,28 @@ public class TransactionController {
     public ResponseEntity<List<Transaction>> getUserTransactions(@PathVariable Long userId) {
         try {
             List<Transaction> transactions = transactionRepository.findByUserId(userId);
+            
+            // ⭐ NEW: Auto-fix old membership transactions that don't have dates set
+            boolean needsSave = false;
+            for (Transaction transaction : transactions) {
+                boolean isPaid = transaction.getPaymentStatus() == PaymentStatus.COMPLETED 
+                            || transaction.getPaymentStatus() == PaymentStatus.PAID;
+                
+                // If it's a paid membership without dates, set them now
+                if (isPaid && transaction.getMembershipType() != null 
+                    && transaction.getMembershipActivatedDate() == null) {
+                    LocalDateTime now = LocalDateTime.now();
+                    transaction.setMembershipActivatedDate(now);
+                    transaction.setMembershipExpiryDate(now.plusMonths(1));
+                    needsSave = true;
+                }
+            }
+            
+            // Save all at once if any were updated
+            if (needsSave) {
+                transactionRepository.saveAll(transactions);
+            }
+            
             return ResponseEntity.ok(transactions);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
