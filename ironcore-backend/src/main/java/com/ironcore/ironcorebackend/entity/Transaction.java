@@ -60,9 +60,15 @@ public class Transaction {
     @Column(name = "payment_date")
     private LocalDateTime paymentDate;
 
-    // NEW FIELD: Track if the user has completed their session
     @Column(name = "session_completed", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
     private Boolean sessionCompleted = false;
+
+    // ⭐ NEW: Membership activation tracking
+    @Column(name = "membership_activated_date")
+    private LocalDateTime membershipActivatedDate;
+
+    @Column(name = "membership_expiry_date")
+    private LocalDateTime membershipExpiryDate;
 
     // Constructors
     public Transaction() {
@@ -204,5 +210,22 @@ public class Transaction {
 
     public void setSessionCompleted(Boolean sessionCompleted) {
         this.sessionCompleted = sessionCompleted;
+    }
+
+    // ⭐ NEW: Membership activation getters and setters
+    public LocalDateTime getMembershipActivatedDate() {
+        return membershipActivatedDate;
+    }
+
+    public void setMembershipActivatedDate(LocalDateTime membershipActivatedDate) {
+        this.membershipActivatedDate = membershipActivatedDate;
+    }
+
+    public LocalDateTime getMembershipExpiryDate() {
+        return membershipExpiryDate;
+    }
+
+    public void setMembershipExpiryDate(LocalDateTime membershipExpiryDate) {
+        this.membershipExpiryDate = membershipExpiryDate;
     }
 }

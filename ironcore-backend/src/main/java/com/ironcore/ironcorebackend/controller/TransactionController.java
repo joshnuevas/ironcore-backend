@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,13 +31,38 @@ public class TransactionController {
     }
 
     @PostMapping
-    public ResponseEntity<Transaction> createTransaction(@RequestBody TransactionRequest request) {
+    public ResponseEntity<?> createTransaction(@RequestBody TransactionRequest request) {
         try {
+            // ⭐ FIXED: Check for active membership before creating transaction
+            if (request.getMembershipType() != null && !request.getMembershipType().isEmpty()) {
+                List<Transaction> activeMemberships = 
+                    transactionRepository.findActiveMembershipsByUser(
+                        request.getUserId(), 
+                        LocalDateTime.now()
+                    );
+                
+                if (!activeMemberships.isEmpty()) {
+                    Transaction existing = activeMemberships.get(0); // Get most recent
+                    Map<String, Object> errorResponse = new HashMap<>();
+                    errorResponse.put("error", "ACTIVE_MEMBERSHIP_EXISTS");
+                    errorResponse.put("message", "You already have an active " + existing.getMembershipType() + " membership");
+                    errorResponse.put("membershipType", existing.getMembershipType());
+                    errorResponse.put("membershipActivatedDate", existing.getMembershipActivatedDate());
+                    errorResponse.put("membershipExpiryDate", existing.getMembershipExpiryDate());
+                    errorResponse.put("transactionCode", existing.getTransactionCode());
+                    
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+                }
+            }
+            
             Transaction savedTransaction = transactionService.createTransactionFromRequest(request);
             return ResponseEntity.ok(savedTransaction);
         } catch (Exception e) {
             e.printStackTrace();
-            return ResponseEntity.badRequest().build();
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "TRANSACTION_CREATION_FAILED");
+            errorResponse.put("message", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
         }
     }
 
@@ -65,7 +91,7 @@ public class TransactionController {
         }
     }
 
-    // ⭐ NEW: Check if user has active enrollment for a class (prevent duplicate bookings)
+    // Check if user has active enrollment for a class
     @GetMapping("/check-active-enrollment")
     public ResponseEntity<?> checkActiveEnrollment(
             @RequestParam Long userId,
@@ -96,20 +122,22 @@ public class TransactionController {
         }
     }
 
-    // ⭐ NEW: Check if user has active membership (prevent duplicate membership purchases)
+    // ⭐ FIXED: Check if user has active non-expired membership
     @GetMapping("/check-active-membership")
     public ResponseEntity<?> checkActiveMembership(@RequestParam Long userId) {
         try {
-            Optional<Transaction> activeMembership = 
-                transactionRepository.findActiveMembershipByUser(userId);
+            List<Transaction> activeMemberships = 
+                transactionRepository.findActiveMembershipsByUser(userId, LocalDateTime.now());
             
-            if (activeMembership.isPresent()) {
-                Transaction transaction = activeMembership.get();
+            if (!activeMemberships.isEmpty()) {
+                Transaction transaction = activeMemberships.get(0); // Get most recent
                 Map<String, Object> response = new HashMap<>();
                 response.put("hasActiveMembership", true);
                 response.put("membershipType", transaction.getMembershipType());
                 response.put("paymentStatus", transaction.getPaymentStatus().toString());
                 response.put("paymentDate", transaction.getPaymentDate());
+                response.put("membershipActivatedDate", transaction.getMembershipActivatedDate());
+                response.put("membershipExpiryDate", transaction.getMembershipExpiryDate());
                 response.put("transactionCode", transaction.getTransactionCode());
                 return ResponseEntity.ok(response);
             } else {
@@ -123,7 +151,7 @@ public class TransactionController {
         }
     }
 
-    // ⭐ NEW: Mark a session as completed
+    // Mark a session as completed
     @PutMapping("/{transactionId}/complete-session")
     public ResponseEntity<?> completeSession(@PathVariable Long transactionId) {
         try {
@@ -145,7 +173,7 @@ public class TransactionController {
         }
     }
 
-    // Check transaction code validity
+    // Check transaction code and activate membership if first time
     @GetMapping("/check/{transactionCode}")
     public ResponseEntity<Map<String, Object>> checkTransactionCode(@PathVariable String transactionCode) {
         Map<String, Object> response = new HashMap<>();
@@ -163,6 +191,14 @@ public class TransactionController {
             
             boolean isPaid = transaction.getPaymentStatus() == PaymentStatus.COMPLETED 
                           || transaction.getPaymentStatus() == PaymentStatus.PAID;
+            
+            // ⭐ Activate membership if it's a membership transaction and not yet activated
+            if (isPaid && transaction.getMembershipType() != null && transaction.getMembershipActivatedDate() == null) {
+                LocalDateTime now = LocalDateTime.now();
+                transaction.setMembershipActivatedDate(now);
+                transaction.setMembershipExpiryDate(now.plusMonths(1)); // 1 month from now
+                transactionRepository.save(transaction);
+            }
             
             response.put("valid", isPaid);
             response.put("transaction", transaction);
@@ -183,11 +219,19 @@ public class TransactionController {
             } else if (transaction.getMembershipType() != null) {
                 response.put("type", "MEMBERSHIP");
                 response.put("membershipType", transaction.getMembershipType());
+                response.put("membershipActivatedDate", transaction.getMembershipActivatedDate());
+                response.put("membershipExpiryDate", transaction.getMembershipExpiryDate());
             }
             
             if (isPaid) {
                 if (transaction.getSessionCompleted()) {
                     response.put("message", "✅ Valid - Session completed");
+                } else if (transaction.getMembershipType() != null && transaction.getMembershipExpiryDate() != null) {
+                    if (LocalDateTime.now().isAfter(transaction.getMembershipExpiryDate())) {
+                        response.put("message", "⚠️ Membership expired");
+                    } else {
+                        response.put("message", "✅ Valid - Membership active");
+                    }
                 } else {
                     response.put("message", "✅ Valid - Access granted");
                 }
