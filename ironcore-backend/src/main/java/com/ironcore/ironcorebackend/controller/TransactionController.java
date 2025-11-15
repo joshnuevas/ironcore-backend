@@ -28,7 +28,7 @@ public class TransactionController {
     private TransactionRepository transactionRepository;
     
     @Autowired
-    private ScheduleRepository scheduleRepository; // ⭐ ADDED
+    private ScheduleRepository scheduleRepository;
 
     public TransactionController(TransactionService transactionService) {
         this.transactionService = transactionService;
@@ -37,7 +37,7 @@ public class TransactionController {
     @PostMapping
     public ResponseEntity<?> createTransaction(@RequestBody TransactionRequest request) {
         try {
-            // ⭐ CHECK 1: Check for active membership before creating transaction
+            // Check for active membership before creating transaction
             if (request.getMembershipType() != null && !request.getMembershipType().isEmpty()) {
                 List<Transaction> activeMemberships = 
                     transactionRepository.findActiveMembershipsByUser(
@@ -59,7 +59,7 @@ public class TransactionController {
                 }
             }
             
-            // ⭐ CHECK 2: Check for active class enrollment before creating transaction
+            // Check for active class enrollment before creating transaction
             if (request.getClassId() != null) {
                 Optional<Transaction> activeEnrollment = 
                     transactionRepository.findActiveEnrollmentByUserAndClass(
@@ -77,6 +77,10 @@ public class TransactionController {
                     errorResponse.put("scheduleTime", existing.getScheduleTime());
                     errorResponse.put("scheduleDate", existing.getScheduleDate());
                     errorResponse.put("transactionCode", existing.getTransactionCode());
+                    // Add membership-related fields
+                    errorResponse.put("membershipType", existing.getMembershipType());
+                    errorResponse.put("membershipActivatedDate", existing.getMembershipActivatedDate());
+                    errorResponse.put("membershipExpiryDate", existing.getMembershipExpiryDate());
                     
                     return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
                 }
@@ -98,50 +102,49 @@ public class TransactionController {
         return ResponseEntity.ok(transactionService.getAllTransactions());
     }
 
-    // ⭐ UPDATED: Increment enrolled count only when payment is completed
-    // ⭐ UPDATED: Set membership dates and increment enrolled count when payment is completed
-        @PutMapping("/{transactionId}/status")
-        public ResponseEntity<?> updateTransactionStatus(
-                @PathVariable Long transactionId,
-                @RequestParam String status) {
+    @PutMapping("/{transactionId}/status")
+    public ResponseEntity<?> updateTransactionStatus(
+            @PathVariable Long transactionId,
+            @RequestParam String status) {
+        
+        try {
+            Transaction transaction = transactionRepository.findById(transactionId)
+                .orElseThrow(() -> new RuntimeException("Transaction not found"));
             
-            try {
-                Transaction transaction = transactionRepository.findById(transactionId)
-                    .orElseThrow(() -> new RuntimeException("Transaction not found"));
+            PaymentStatus oldStatus = transaction.getPaymentStatus();
+            PaymentStatus newStatus = PaymentStatus.valueOf(status);
+            
+            transaction.setPaymentStatus(newStatus);
+            
+            // Only increment enrolled count and set dates when payment is completed
+            if (newStatus == PaymentStatus.COMPLETED && oldStatus != PaymentStatus.COMPLETED) {
+                // Set payment date
+                transaction.setPaymentDate(LocalDateTime.now());
                 
-                PaymentStatus oldStatus = transaction.getPaymentStatus();
-                PaymentStatus newStatus = PaymentStatus.valueOf(status);
-                
-                transaction.setPaymentStatus(newStatus);
-                
-                // ⭐ NEW: Only increment enrolled count and set dates when payment is completed
-                if (newStatus == PaymentStatus.COMPLETED && oldStatus != PaymentStatus.COMPLETED) {
-                    // Set payment date
-                    transaction.setPaymentDate(LocalDateTime.now());
-                    
-                    // For class enrollments, increment the enrolled count in the schedule
-                    if (transaction.getSchedule() != null) {
-                        scheduleRepository.incrementEnrolledCount(transaction.getSchedule().getId());
-                    }
-                    
-                    // ⭐ NEW: For membership, set activation and expiry dates
-                    if (transaction.getMembershipType() != null && transaction.getMembershipActivatedDate() == null) {
-                        LocalDateTime now = LocalDateTime.now();
-                        transaction.setMembershipActivatedDate(now);
-                        transaction.setMembershipExpiryDate(now.plusMonths(1));
-                    }
+                // For class enrollments, increment the enrolled count in the schedule
+                if (transaction.getSchedule() != null) {
+                    scheduleRepository.incrementEnrolledCount(transaction.getSchedule().getId());
                 }
                 
-                transactionRepository.save(transaction);
-                
-                return ResponseEntity.ok(transaction);
-            } catch (Exception e) {
-                e.printStackTrace();
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body("Failed to update transaction: " + e.getMessage());
+                // For membership, set activation and expiry dates
+                if (transaction.getMembershipType() != null && transaction.getMembershipActivatedDate() == null) {
+                    LocalDateTime now = LocalDateTime.now();
+                    transaction.setMembershipActivatedDate(now);
+                    transaction.setMembershipExpiryDate(now.plusMonths(1));
+                }
             }
+            
+            transactionRepository.save(transaction);
+            
+            return ResponseEntity.ok(transaction);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body("Failed to update transaction: " + e.getMessage());
         }
+    }
 
+    // ⭐ UPDATED: Include membership-related fields for both regular and membership classes
     @GetMapping("/check-active-enrollment")
     public ResponseEntity<?> checkActiveEnrollment(
             @RequestParam Long userId,
@@ -160,6 +163,12 @@ public class TransactionController {
                 response.put("scheduleDate", transaction.getScheduleDate());
                 response.put("paymentStatus", transaction.getPaymentStatus().toString());
                 response.put("transactionCode", transaction.getTransactionCode());
+                
+                // ⭐ ADD: Include membership-related fields
+                response.put("membershipType", transaction.getMembershipType());
+                response.put("membershipActivatedDate", transaction.getMembershipActivatedDate());
+                response.put("membershipExpiryDate", transaction.getMembershipExpiryDate());
+                
                 return ResponseEntity.ok(response);
             } else {
                 Map<String, Object> response = new HashMap<>();
@@ -298,7 +307,7 @@ public class TransactionController {
         try {
             List<Transaction> transactions = transactionRepository.findByUserId(userId);
             
-            // ⭐ NEW: Auto-fix old membership transactions that don't have dates set
+            // Auto-fix old membership transactions that don't have dates set
             boolean needsSave = false;
             for (Transaction transaction : transactions) {
                 boolean isPaid = transaction.getPaymentStatus() == PaymentStatus.COMPLETED 
