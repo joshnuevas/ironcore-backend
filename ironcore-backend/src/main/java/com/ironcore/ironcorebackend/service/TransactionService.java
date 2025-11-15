@@ -59,7 +59,7 @@ public class TransactionService {
     }
 
     public Transaction createTransactionFromRequest(TransactionRequest request) {
-    // Fetch user
+        // Fetch user
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -70,18 +70,16 @@ public class TransactionService {
         String className = null;
         String membershipType = null;
 
-        // ✅ Get schedule first (class is derived from schedule)
+        // ✅ Handle class enrollment
         if (request.getScheduleId() != null) {
             Schedule schedule = scheduleRepository.findById(request.getScheduleId())
                     .orElseThrow(() -> new RuntimeException("Schedule not found"));
 
-            // Get class from the schedule itself
+            // Get class from the schedule
             ClassEntity classEntity = schedule.getClassEntity();
 
-            // ✅ Check if schedule is full
-            if (schedule.getEnrolledCount() >= schedule.getMaxParticipants()) {
-                throw new RuntimeException("This schedule is already full");
-            }
+            // ⭐ REMOVED: Do NOT check if full here - allow pending transactions
+            // ⭐ REMOVED: Do NOT increment enrolledCount here - only on payment completion
 
             // Link everything
             transaction.setSchedule(schedule);
@@ -91,14 +89,10 @@ public class TransactionService {
             transaction.setScheduleTime(schedule.getTimeSlot());
             transaction.setScheduleDate(schedule.getDate().toString());
 
-            // Update enrolled count for this schedule only
-            schedule.setEnrolledCount(schedule.getEnrolledCount() + 1);
-            scheduleRepository.save(schedule);
-
             className = classEntity.getName();
         }
 
-        // ✅ Membership transactions (if no scheduleId)
+        // ✅ Handle membership transactions
         if (request.getMembershipType() != null) {
             membershipType = request.getMembershipType();
             transaction.setMembershipType(membershipType);
@@ -118,8 +112,7 @@ public class TransactionService {
         return transactionRepository.save(transaction);
     }
 
-
     public List<Transaction> getAllTransactions() {
         return transactionRepository.findAll();
     }
-}
+}   

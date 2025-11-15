@@ -4,6 +4,7 @@ import com.ironcore.ironcorebackend.dto.TransactionRequest;
 import com.ironcore.ironcorebackend.entity.Transaction;
 import com.ironcore.ironcorebackend.entity.PaymentStatus;
 import com.ironcore.ironcorebackend.repository.TransactionRepository;
+import com.ironcore.ironcorebackend.repository.ScheduleRepository;
 import com.ironcore.ironcorebackend.service.TransactionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -25,6 +26,9 @@ public class TransactionController {
     
     @Autowired
     private TransactionRepository transactionRepository;
+    
+    @Autowired
+    private ScheduleRepository scheduleRepository; // ⭐ ADDED
 
     public TransactionController(TransactionService transactionService) {
         this.transactionService = transactionService;
@@ -94,6 +98,7 @@ public class TransactionController {
         return ResponseEntity.ok(transactionService.getAllTransactions());
     }
 
+    // ⭐ UPDATED: Increment enrolled count only when payment is completed
     @PutMapping("/{transactionId}/status")
     public ResponseEntity<?> updateTransactionStatus(
             @PathVariable Long transactionId,
@@ -103,11 +108,27 @@ public class TransactionController {
             Transaction transaction = transactionRepository.findById(transactionId)
                 .orElseThrow(() -> new RuntimeException("Transaction not found"));
             
-            transaction.setPaymentStatus(PaymentStatus.valueOf(status));
+            PaymentStatus oldStatus = transaction.getPaymentStatus();
+            PaymentStatus newStatus = PaymentStatus.valueOf(status);
+            
+            transaction.setPaymentStatus(newStatus);
+            
+            // ⭐ NEW: Only increment enrolled count when payment is completed
+            if (newStatus == PaymentStatus.COMPLETED && oldStatus != PaymentStatus.COMPLETED) {
+                // Set payment date
+                transaction.setPaymentDate(LocalDateTime.now());
+                
+                // For class enrollments, increment the enrolled count in the schedule
+                if (transaction.getSchedule() != null) {
+                    scheduleRepository.incrementEnrolledCount(transaction.getSchedule().getId());
+                }
+            }
+            
             transactionRepository.save(transaction);
             
             return ResponseEntity.ok(transaction);
         } catch (Exception e) {
+            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body("Failed to update transaction: " + e.getMessage());
         }
