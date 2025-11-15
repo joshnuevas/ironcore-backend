@@ -33,7 +33,7 @@ public class TransactionController {
     @PostMapping
     public ResponseEntity<?> createTransaction(@RequestBody TransactionRequest request) {
         try {
-            // ⭐ FIXED: Check for active membership before creating transaction
+            // ⭐ CHECK 1: Check for active membership before creating transaction
             if (request.getMembershipType() != null && !request.getMembershipType().isEmpty()) {
                 List<Transaction> activeMemberships = 
                     transactionRepository.findActiveMembershipsByUser(
@@ -42,13 +42,36 @@ public class TransactionController {
                     );
                 
                 if (!activeMemberships.isEmpty()) {
-                    Transaction existing = activeMemberships.get(0); // Get most recent
+                    Transaction existing = activeMemberships.get(0);
                     Map<String, Object> errorResponse = new HashMap<>();
                     errorResponse.put("error", "ACTIVE_MEMBERSHIP_EXISTS");
                     errorResponse.put("message", "You already have an active " + existing.getMembershipType() + " membership");
                     errorResponse.put("membershipType", existing.getMembershipType());
                     errorResponse.put("membershipActivatedDate", existing.getMembershipActivatedDate());
                     errorResponse.put("membershipExpiryDate", existing.getMembershipExpiryDate());
+                    errorResponse.put("transactionCode", existing.getTransactionCode());
+                    
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+                }
+            }
+            
+            // ⭐ CHECK 2: Check for active class enrollment before creating transaction
+            if (request.getClassId() != null) {
+                Optional<Transaction> activeEnrollment = 
+                    transactionRepository.findActiveEnrollmentByUserAndClass(
+                        request.getUserId(), 
+                        request.getClassId()
+                    );
+                
+                if (activeEnrollment.isPresent()) {
+                    Transaction existing = activeEnrollment.get();
+                    Map<String, Object> errorResponse = new HashMap<>();
+                    errorResponse.put("error", "ACTIVE_ENROLLMENT_EXISTS");
+                    errorResponse.put("message", "You already have an active enrollment for this class");
+                    errorResponse.put("className", existing.getClassName());
+                    errorResponse.put("scheduleDay", existing.getScheduleDay());
+                    errorResponse.put("scheduleTime", existing.getScheduleTime());
+                    errorResponse.put("scheduleDate", existing.getScheduleDate());
                     errorResponse.put("transactionCode", existing.getTransactionCode());
                     
                     return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
@@ -71,7 +94,6 @@ public class TransactionController {
         return ResponseEntity.ok(transactionService.getAllTransactions());
     }
 
-    // Update transaction status
     @PutMapping("/{transactionId}/status")
     public ResponseEntity<?> updateTransactionStatus(
             @PathVariable Long transactionId,
@@ -91,7 +113,6 @@ public class TransactionController {
         }
     }
 
-    // Check if user has active enrollment for a class
     @GetMapping("/check-active-enrollment")
     public ResponseEntity<?> checkActiveEnrollment(
             @RequestParam Long userId,
@@ -122,7 +143,6 @@ public class TransactionController {
         }
     }
 
-    // ⭐ FIXED: Check if user has active non-expired membership
     @GetMapping("/check-active-membership")
     public ResponseEntity<?> checkActiveMembership(@RequestParam Long userId) {
         try {
@@ -130,7 +150,7 @@ public class TransactionController {
                 transactionRepository.findActiveMembershipsByUser(userId, LocalDateTime.now());
             
             if (!activeMemberships.isEmpty()) {
-                Transaction transaction = activeMemberships.get(0); // Get most recent
+                Transaction transaction = activeMemberships.get(0);
                 Map<String, Object> response = new HashMap<>();
                 response.put("hasActiveMembership", true);
                 response.put("membershipType", transaction.getMembershipType());
@@ -151,7 +171,6 @@ public class TransactionController {
         }
     }
 
-    // Mark a session as completed
     @PutMapping("/{transactionId}/complete-session")
     public ResponseEntity<?> completeSession(@PathVariable Long transactionId) {
         try {
@@ -173,7 +192,6 @@ public class TransactionController {
         }
     }
 
-    // Check transaction code and activate membership if first time
     @GetMapping("/check/{transactionCode}")
     public ResponseEntity<Map<String, Object>> checkTransactionCode(@PathVariable String transactionCode) {
         Map<String, Object> response = new HashMap<>();
@@ -192,11 +210,10 @@ public class TransactionController {
             boolean isPaid = transaction.getPaymentStatus() == PaymentStatus.COMPLETED 
                           || transaction.getPaymentStatus() == PaymentStatus.PAID;
             
-            // ⭐ Activate membership if it's a membership transaction and not yet activated
             if (isPaid && transaction.getMembershipType() != null && transaction.getMembershipActivatedDate() == null) {
                 LocalDateTime now = LocalDateTime.now();
                 transaction.setMembershipActivatedDate(now);
-                transaction.setMembershipExpiryDate(now.plusMonths(1)); // 1 month from now
+                transaction.setMembershipExpiryDate(now.plusMonths(1));
                 transactionRepository.save(transaction);
             }
             
@@ -209,7 +226,6 @@ public class TransactionController {
             response.put("paymentDate", transaction.getPaymentDate());
             response.put("sessionCompleted", transaction.getSessionCompleted());
             
-            // Include class/membership info
             if (transaction.getClassName() != null) {
                 response.put("type", "CLASS");
                 response.put("className", transaction.getClassName());
@@ -248,7 +264,6 @@ public class TransactionController {
         }
     }
 
-    // Get all transactions for a specific user
     @GetMapping("/user/{userId}")
     public ResponseEntity<List<Transaction>> getUserTransactions(@PathVariable Long userId) {
         try {
