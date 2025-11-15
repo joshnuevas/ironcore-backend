@@ -116,7 +116,7 @@ public class TransactionController {
             
             transaction.setPaymentStatus(newStatus);
             
-            // Only increment enrolled count and set dates when payment is completed
+            // Only increment enrolled count when payment is completed
             if (newStatus == PaymentStatus.COMPLETED && oldStatus != PaymentStatus.COMPLETED) {
                 // Set payment date
                 transaction.setPaymentDate(LocalDateTime.now());
@@ -126,12 +126,7 @@ public class TransactionController {
                     scheduleRepository.incrementEnrolledCount(transaction.getSchedule().getId());
                 }
                 
-                // For membership, set activation and expiry dates
-                if (transaction.getMembershipType() != null && transaction.getMembershipActivatedDate() == null) {
-                    LocalDateTime now = LocalDateTime.now();
-                    transaction.setMembershipActivatedDate(now);
-                    transaction.setMembershipExpiryDate(now.plusMonths(1));
-                }
+                // Don't set membership dates on payment - only when admin checks code
             }
             
             transactionRepository.save(transaction);
@@ -144,7 +139,6 @@ public class TransactionController {
         }
     }
 
-    // ⭐ UPDATED: Include membership-related fields for both regular and membership classes
     @GetMapping("/check-active-enrollment")
     public ResponseEntity<?> checkActiveEnrollment(
             @RequestParam Long userId,
@@ -164,7 +158,7 @@ public class TransactionController {
                 response.put("paymentStatus", transaction.getPaymentStatus().toString());
                 response.put("transactionCode", transaction.getTransactionCode());
                 
-                // ⭐ ADD: Include membership-related fields
+                // Include membership-related fields
                 response.put("membershipType", transaction.getMembershipType());
                 response.put("membershipActivatedDate", transaction.getMembershipActivatedDate());
                 response.put("membershipExpiryDate", transaction.getMembershipExpiryDate());
@@ -230,6 +224,7 @@ public class TransactionController {
         }
     }
 
+    // ⭐ UPDATED: Activate membership AND all related class transactions when admin checks code
     @GetMapping("/check/{transactionCode}")
     public ResponseEntity<Map<String, Object>> checkTransactionCode(@PathVariable String transactionCode) {
         Map<String, Object> response = new HashMap<>();
@@ -248,11 +243,37 @@ public class TransactionController {
             boolean isPaid = transaction.getPaymentStatus() == PaymentStatus.COMPLETED 
                           || transaction.getPaymentStatus() == PaymentStatus.PAID;
             
+            // ⭐ UPDATED: Activate membership AND all related class transactions when admin checks code
             if (isPaid && transaction.getMembershipType() != null && transaction.getMembershipActivatedDate() == null) {
                 LocalDateTime now = LocalDateTime.now();
+                LocalDateTime expiryDate = now.plusMonths(1);
+                
+                // Activate the main membership transaction
                 transaction.setMembershipActivatedDate(now);
-                transaction.setMembershipExpiryDate(now.plusMonths(1));
+                transaction.setMembershipExpiryDate(expiryDate);
                 transactionRepository.save(transaction);
+                
+                // ⭐ NEW: Also activate all related class transactions for this membership
+                if (transaction.getUser() != null) {
+                    List<Transaction> allUserTransactions = transactionRepository.findByUserId(transaction.getUser().getId());
+                    
+                    for (Transaction t : allUserTransactions) {
+                        // Find transactions that are membership classes (have className, membershipType, no scheduleDay)
+                        boolean isMembershipClass = t.getClassName() != null 
+                                                 && t.getMembershipType() != null 
+                                                 && t.getScheduleDay() == null
+                                                 && t.getMembershipActivatedDate() == null;
+                        
+                        // Check if it belongs to the same membership type
+                        if (isMembershipClass && t.getMembershipType().equals(transaction.getMembershipType())) {
+                            t.setMembershipActivatedDate(now);
+                            t.setMembershipExpiryDate(expiryDate);
+                        }
+                    }
+                    
+                    // Save all updated transactions
+                    transactionRepository.saveAll(allUserTransactions);
+                }
             }
             
             response.put("valid", isPaid);
@@ -306,28 +327,6 @@ public class TransactionController {
     public ResponseEntity<List<Transaction>> getUserTransactions(@PathVariable Long userId) {
         try {
             List<Transaction> transactions = transactionRepository.findByUserId(userId);
-            
-            // Auto-fix old membership transactions that don't have dates set
-            boolean needsSave = false;
-            for (Transaction transaction : transactions) {
-                boolean isPaid = transaction.getPaymentStatus() == PaymentStatus.COMPLETED 
-                            || transaction.getPaymentStatus() == PaymentStatus.PAID;
-                
-                // If it's a paid membership without dates, set them now
-                if (isPaid && transaction.getMembershipType() != null 
-                    && transaction.getMembershipActivatedDate() == null) {
-                    LocalDateTime now = LocalDateTime.now();
-                    transaction.setMembershipActivatedDate(now);
-                    transaction.setMembershipExpiryDate(now.plusMonths(1));
-                    needsSave = true;
-                }
-            }
-            
-            // Save all at once if any were updated
-            if (needsSave) {
-                transactionRepository.saveAll(transactions);
-            }
-            
             return ResponseEntity.ok(transactions);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
