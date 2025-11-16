@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/admin")
 public class AdminController {
 
+    //Autowired automatically creates object instance of that object.
     @Autowired
     private UserRepository userRepository;
 
@@ -33,7 +34,7 @@ public class AdminController {
     @Autowired
     private TransactionRepository transactionRepository;
 
-    // Helper method to check if user is admin
+    // helper method to check if user is admin
     private ResponseEntity<?> verifyAdminAccess(HttpSession session) {
         Long userId = (Long) session.getAttribute("userId");
         
@@ -61,6 +62,8 @@ public class AdminController {
         return null; // No error, user is admin
     }
 
+    //in charge of dashboard statistics: active schedules, total members(non-admin acounts),
+    //available slots of schedules, and completed transactions
     @GetMapping("/stats")
     public ResponseEntity<?> getAdminStats(HttpSession session) {
         // Verify admin access
@@ -104,7 +107,9 @@ public class AdminController {
         }
     }
 
-    // NEW: Get enrolled users for a specific schedule
+
+    /*Shows all users enrolled in a specific schedule, BUT only:
+    transaction payment = COMPLETED and sessionCompleted = false (not done yet) */
     @GetMapping("/schedules/{scheduleId}/users")
     public ResponseEntity<?> getEnrolledUsers(@PathVariable Long scheduleId, HttpSession session) {
         // Verify admin access
@@ -128,7 +133,7 @@ public class AdminController {
                            !Boolean.TRUE.equals(t.getSessionCompleted()))
                 .collect(Collectors.toList());
 
-            // Map to user info
+            /// Convert each transaction into a simple user info object and collect them into a list
             List<Map<String, Object>> enrolledUsers = transactions.stream()
                 .map(transaction -> {
                     Map<String, Object> userInfo = new HashMap<>();
@@ -158,7 +163,7 @@ public class AdminController {
         }
     }
 
-    // NEW: Mark user's session as completed
+    // mark user's class session of an schedule as completed
     @PutMapping("/schedules/{scheduleId}/users/{transactionId}/complete")
     @ResponseBody
     public ResponseEntity<?> markSessionCompleted(

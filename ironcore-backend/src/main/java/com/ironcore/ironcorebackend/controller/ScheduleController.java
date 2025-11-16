@@ -80,7 +80,7 @@ public class ScheduleController {
         
         return ResponseEntity.ok(response);
     }
-
+    
     // Get a single schedule by ID
     @GetMapping("/{id}")
     public ResponseEntity<Schedule> getScheduleById(@PathVariable Long id) {

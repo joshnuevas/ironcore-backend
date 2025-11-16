@@ -17,12 +17,15 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/auth")
 public class LoginController {
 
+    // Repository to access user data from database
     @Autowired
     private UserRepository userRepository;
 
+    // Encoder to check hashed passwords
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    // Utility to generate JWT tokens for authentication
     @Autowired
     private JwtUtil jwtUtil;
 
