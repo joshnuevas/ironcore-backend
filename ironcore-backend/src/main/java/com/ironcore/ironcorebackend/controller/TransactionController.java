@@ -38,22 +38,34 @@ public class TransactionController {
     public ResponseEntity<?> createTransaction(@RequestBody TransactionRequest request) {
         try {
             // Check for active membership before creating transaction
-            if (request.getMembershipType() != null && !request.getMembershipType().isEmpty()) {
+            // ⭐ Only check if trying to buy a MONTHLY membership (not SESSION)
+            if (request.getMembershipType() != null 
+                && !request.getMembershipType().isEmpty() 
+                && !"SESSION".equals(request.getMembershipType())) {
+                
                 List<Transaction> activeMemberships = 
                     transactionRepository.findActiveMembershipsByUser(
                         request.getUserId(), 
                         LocalDateTime.now()
                     );
                 
-                if (!activeMemberships.isEmpty()) {
-                    Transaction existing = activeMemberships.get(0);
+                // ⭐ Only block if they have an active MONTHLY membership (filter out SESSION)
+                Transaction activeMonthlyMembership = null;
+                for (Transaction t : activeMemberships) {
+                    if (!"SESSION".equals(t.getMembershipType())) {
+                        activeMonthlyMembership = t;
+                        break;
+                    }
+                }
+                
+                if (activeMonthlyMembership != null) {
                     Map<String, Object> errorResponse = new HashMap<>();
                     errorResponse.put("error", "ACTIVE_MEMBERSHIP_EXISTS");
-                    errorResponse.put("message", "You already have an active " + existing.getMembershipType() + " membership");
-                    errorResponse.put("membershipType", existing.getMembershipType());
-                    errorResponse.put("membershipActivatedDate", existing.getMembershipActivatedDate());
-                    errorResponse.put("membershipExpiryDate", existing.getMembershipExpiryDate());
-                    errorResponse.put("transactionCode", existing.getTransactionCode());
+                    errorResponse.put("message", "You already have an active " + activeMonthlyMembership.getMembershipType() + " membership");
+                    errorResponse.put("membershipType", activeMonthlyMembership.getMembershipType());
+                    errorResponse.put("membershipActivatedDate", activeMonthlyMembership.getMembershipActivatedDate());
+                    errorResponse.put("membershipExpiryDate", activeMonthlyMembership.getMembershipExpiryDate());
+                    errorResponse.put("transactionCode", activeMonthlyMembership.getTransactionCode());
                     
                     return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
                 }
