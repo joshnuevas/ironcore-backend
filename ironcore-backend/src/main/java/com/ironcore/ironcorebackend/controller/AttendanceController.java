@@ -193,97 +193,118 @@ public class AttendanceController {
     }
 
     // Mark attendance (check-in or check-out)
-    @PostMapping("/mark")
-    public ResponseEntity<?> markAttendance(@RequestBody Map<String, Object> request, HttpSession session) {
-        ResponseEntity<?> accessCheck = verifyAdminAccess(session);
-        if (accessCheck != null) return accessCheck;
+    // Mark attendance (check-in or check-out)
+@PostMapping("/mark")
+public ResponseEntity<?> markAttendance(@RequestBody Map<String, Object> request, HttpSession session) {
+    ResponseEntity<?> accessCheck = verifyAdminAccess(session);
+    if (accessCheck != null) return accessCheck;
 
-        try {
-            System.out.println("=== Marking Attendance ===");
-            System.out.println("Request: " + request);
-            
-            Long userId = Long.valueOf(request.get("userId").toString());
-            String dateStr = request.get("date").toString();
-            Boolean checkedIn = Boolean.valueOf(request.get("checkedIn").toString());
-            String notes = null;
-            if (request.containsKey("notes") && request.get("notes") != null) {
-                notes = request.get("notes").toString();
-            }
-
-            LocalDate attendanceDate = LocalDate.parse(dateStr);
-            Long adminId = (Long) session.getAttribute("userId");
-
-            User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-            User admin = userRepository.findById(adminId)
-                .orElseThrow(() -> new RuntimeException("Admin not found"));
-
-            // Get user's active membership
-            LocalDateTime targetDateTime = attendanceDate.atStartOfDay();
-            Transaction activeMembership = transactionRepository.findAll().stream()
-                .filter(t -> t.getUser() != null 
-                          && t.getUser().getId().equals(userId)
-                          && t.getMembershipType() != null 
-                          && t.getMembershipActivatedDate() != null
-                          && t.getMembershipExpiryDate() != null
-                          && t.getPaymentStatus() == PaymentStatus.COMPLETED
-                          && !targetDateTime.isBefore(t.getMembershipActivatedDate())
-                          && !targetDateTime.isAfter(t.getMembershipExpiryDate()))
-                .findFirst()
-                .orElse(null);
-
-            if (activeMembership == null) {
-                Map<String, String> errorResponse = new HashMap<>();
-                errorResponse.put("message", "User does not have an active membership");
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
-            }
-
-            // Check if attendance record exists
-            Optional<Attendance> existingAttendance = attendanceRepository
-                .findByUserIdAndAttendanceDate(userId, attendanceDate);
-
-            Attendance attendance;
-            if (existingAttendance.isPresent()) {
-                attendance = existingAttendance.get();
-                attendance.setCheckedIn(checkedIn);
-                attendance.setCheckInTime(checkedIn ? LocalDateTime.now() : null);
-                attendance.setCheckedByAdmin(admin);
-                if (notes != null) {
-                    attendance.setNotes(notes);
-                }
-            } else {
-                attendance = new Attendance();
-                attendance.setUser(user);
-                attendance.setAttendanceDate(attendanceDate);
-                attendance.setCheckedIn(checkedIn);
-                attendance.setCheckInTime(checkedIn ? LocalDateTime.now() : null);
-                attendance.setCheckedByAdmin(admin);
-                attendance.setMembershipType(activeMembership.getMembershipType());
-                if (notes != null) {
-                    attendance.setNotes(notes);
-                }
-            }
-
-            Attendance saved = attendanceRepository.save(attendance);
-            System.out.println("Attendance saved: " + saved.getId());
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", checkedIn ? "Member checked in successfully" : "Member check-in removed");
-            response.put("attendanceId", saved.getId());
-            response.put("checkedIn", saved.getCheckedIn());
-            response.put("checkInTime", saved.getCheckInTime());
-
-            return ResponseEntity.ok(response);
-
-        } catch (Exception e) {
-            System.err.println("Error marking attendance:");
-            e.printStackTrace();
-            Map<String, String> errorResponse = new HashMap<>();
-            errorResponse.put("message", "Failed to mark attendance: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+    try {
+        System.out.println("=== Marking Attendance ===");
+        System.out.println("Request: " + request);
+        
+        Long userId = Long.valueOf(request.get("userId").toString());
+        String dateStr = request.get("date").toString();
+        Boolean checkedIn = Boolean.valueOf(request.get("checkedIn").toString());
+        String notes = null;
+        if (request.containsKey("notes") && request.get("notes") != null) {
+            notes = request.get("notes").toString();
         }
+
+        LocalDate attendanceDate = LocalDate.parse(dateStr);
+        Long adminId = (Long) session.getAttribute("userId");
+
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+        User admin = userRepository.findById(adminId)
+            .orElseThrow(() -> new RuntimeException("Admin not found"));
+
+        // Get user's active membership - FIXED: Compare dates only
+        Transaction activeMembership = transactionRepository.findAll().stream()
+            .filter(t -> {
+                if (t.getUser() == null || !t.getUser().getId().equals(userId)) {
+                    return false;
+                }
+                if (t.getMembershipType() == null) {
+                    return false;
+                }
+                if (t.getMembershipActivatedDate() == null || t.getMembershipExpiryDate() == null) {
+                    return false;
+                }
+                if (t.getPaymentStatus() != PaymentStatus.COMPLETED) {
+                    return false;
+                }
+                
+                // Compare dates only (ignore time components)
+                LocalDate activatedDate = t.getMembershipActivatedDate().toLocalDate();
+                LocalDate expiryDate = t.getMembershipExpiryDate().toLocalDate();
+                
+                boolean isAfterOrOnStart = !attendanceDate.isBefore(activatedDate);
+                boolean isBeforeOrOnEnd = !attendanceDate.isAfter(expiryDate);
+                
+                System.out.println("Checking membership: activated=" + activatedDate + 
+                                 ", expiry=" + expiryDate + 
+                                 ", attendanceDate=" + attendanceDate +
+                                 ", isAfterOrOnStart=" + isAfterOrOnStart +
+                                 ", isBeforeOrOnEnd=" + isBeforeOrOnEnd);
+                
+                return isAfterOrOnStart && isBeforeOrOnEnd;
+            })
+            .findFirst()
+            .orElse(null);
+
+        if (activeMembership == null) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "User does not have an active membership for the selected date");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        }
+
+        // Check if attendance record exists
+        Optional<Attendance> existingAttendance = attendanceRepository
+            .findByUserIdAndAttendanceDate(userId, attendanceDate);
+
+        Attendance attendance;
+        if (existingAttendance.isPresent()) {
+            attendance = existingAttendance.get();
+            attendance.setCheckedIn(checkedIn);
+            attendance.setCheckInTime(checkedIn ? LocalDateTime.now() : null);
+            attendance.setCheckedByAdmin(admin);
+            if (notes != null) {
+                attendance.setNotes(notes);
+            }
+        } else {
+            attendance = new Attendance();
+            attendance.setUser(user);
+            attendance.setAttendanceDate(attendanceDate);
+            attendance.setCheckedIn(checkedIn);
+            attendance.setCheckInTime(checkedIn ? LocalDateTime.now() : null);
+            attendance.setCheckedByAdmin(admin);
+            attendance.setMembershipType(activeMembership.getMembershipType());
+            if (notes != null) {
+                attendance.setNotes(notes);
+            }
+        }
+
+        Attendance saved = attendanceRepository.save(attendance);
+        System.out.println("Attendance saved: " + saved.getId());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", checkedIn ? "Member checked in successfully" : "Member check-in removed");
+        response.put("attendanceId", saved.getId());
+        response.put("checkedIn", saved.getCheckedIn());
+        response.put("checkInTime", saved.getCheckInTime());
+
+        return ResponseEntity.ok(response);
+
+    } catch (Exception e) {
+        System.err.println("Error marking attendance:");
+        e.printStackTrace();
+        Map<String, String> errorResponse = new HashMap<>();
+        errorResponse.put("message", "Failed to mark attendance: " + e.getMessage());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
     }
+}
 
     // Get attendance statistics
     @GetMapping("/stats")
