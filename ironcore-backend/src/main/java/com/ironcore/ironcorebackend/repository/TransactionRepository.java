@@ -3,9 +3,11 @@ package com.ironcore.ironcorebackend.repository;
 import com.ironcore.ironcorebackend.entity.Transaction;
 import com.ironcore.ironcorebackend.entity.PaymentStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,9 +32,10 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
         @Param("classId") Long classId
     );
     
-    // ⭐ FIXED: Only find ACTIVATED and non-expired memberships
+    // ⭐ FIXED: Only find membership PURCHASE transactions (not class enrollments)
     @Query("SELECT t FROM Transaction t WHERE t.user.id = :userId " +
-           "AND t.membershipType IS NOT NULL " +
+           "AND t.membershipType IN ('SILVER', 'GOLD', 'PLATINUM', 'SESSION') " +
+           "AND t.className IS NULL " +
            "AND (t.paymentStatus = 'COMPLETED' OR t.paymentStatus = 'PAID') " +
            "AND t.membershipActivatedDate IS NOT NULL " +
            "AND t.membershipExpiryDate > :currentDate " +
@@ -44,4 +47,10 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     
     // Find transactions by payment status
     List<Transaction> findByPaymentStatus(PaymentStatus paymentStatus);
+    
+    // Increment enrolled count for a schedule
+    @Transactional
+    @Modifying
+    @Query("UPDATE Schedule s SET s.enrolledCount = s.enrolledCount + 1 WHERE s.id = :scheduleId")
+    void incrementEnrolledCount(@Param("scheduleId") Long scheduleId);
 }
