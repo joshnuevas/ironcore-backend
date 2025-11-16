@@ -224,7 +224,7 @@ public class TransactionController {
         }
     }
 
-    // ⭐ UPDATED: Activate membership AND all related class transactions when admin checks code
+    // ⭐ FIXED: Handle SESSION (1 day) vs MEMBERSHIP (1 month) differently
     @GetMapping("/check/{transactionCode}")
     public ResponseEntity<Map<String, Object>> checkTransactionCode(@PathVariable String transactionCode) {
         Map<String, Object> response = new HashMap<>();
@@ -243,18 +243,26 @@ public class TransactionController {
             boolean isPaid = transaction.getPaymentStatus() == PaymentStatus.COMPLETED 
                           || transaction.getPaymentStatus() == PaymentStatus.PAID;
             
-            // ⭐ UPDATED: Activate membership AND all related class transactions when admin checks code
+            // ⭐ FIXED: Activate membership with correct duration based on type
             if (isPaid && transaction.getMembershipType() != null && transaction.getMembershipActivatedDate() == null) {
                 LocalDateTime now = LocalDateTime.now();
-                LocalDateTime expiryDate = now.plusMonths(1);
+                LocalDateTime expiryDate;
+                
+                // ⭐ SESSION gets until end of day (11:59:59 PM), other memberships get 1 month
+                if ("SESSION".equals(transaction.getMembershipType())) {
+                    // Set expiry to 11:59:59 PM of the same day
+                    expiryDate = now.toLocalDate().atTime(23, 59, 59);
+                } else {
+                    expiryDate = now.plusMonths(1);
+                }
                 
                 // Activate the main membership transaction
                 transaction.setMembershipActivatedDate(now);
                 transaction.setMembershipExpiryDate(expiryDate);
                 transactionRepository.save(transaction);
                 
-                // ⭐ NEW: Also activate all related class transactions for this membership
-                if (transaction.getUser() != null) {
+                // ⭐ Only activate related class transactions for monthly memberships (not SESSION)
+                if (!"SESSION".equals(transaction.getMembershipType()) && transaction.getUser() != null) {
                     List<Transaction> allUserTransactions = transactionRepository.findByUserId(transaction.getUser().getId());
                     
                     for (Transaction t : allUserTransactions) {
