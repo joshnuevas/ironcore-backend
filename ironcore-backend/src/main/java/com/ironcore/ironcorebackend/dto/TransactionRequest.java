@@ -13,6 +13,7 @@ public class TransactionRequest {
 
     // For class transactions
     private Long scheduleId;
+    private Long classId;
 
     // Payment info
     private Double totalAmount;
@@ -24,13 +25,14 @@ public class TransactionRequest {
     public TransactionRequest() {}
 
     public TransactionRequest(Long userId, String membershipType, LocalDateTime membershipActivatedDate,
-                              LocalDateTime membershipExpiryDate, Long scheduleId, Double totalAmount,
+                              LocalDateTime membershipExpiryDate, Long scheduleId, Long classId, Double totalAmount,
                               Double processingFee, String paymentMethod, String paymentStatus) {
         this.userId = userId;
         this.membershipType = membershipType;
         this.membershipActivatedDate = membershipActivatedDate;
         this.membershipExpiryDate = membershipExpiryDate;
         this.scheduleId = scheduleId;
+        this.classId = classId;
         this.totalAmount = totalAmount;
         this.processingFee = processingFee;
         this.paymentMethod = paymentMethod;
@@ -52,6 +54,9 @@ public class TransactionRequest {
 
     public Long getScheduleId() { return scheduleId; }
     public void setScheduleId(Long scheduleId) { this.scheduleId = scheduleId; }
+
+    public Long getClassId() { return classId; }
+    public void setClassId(Long classId) { this.classId = classId; }
 
     public Double getTotalAmount() { return totalAmount; }
     public void setTotalAmount(Double totalAmount) { this.totalAmount = totalAmount; }

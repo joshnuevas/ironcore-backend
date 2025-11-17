@@ -36,9 +36,15 @@ public class Schedule {
     @Column(name = "max_participants", nullable = false)
     private Integer maxParticipants = 15;
 
+    // REMOVED: Direct transaction relationship - Transactions are financial records
+    // @OneToMany(mappedBy = "schedule")
+    // @JsonIgnore
+    // private List<Transaction> transactions;
+
+    // ADDED: Relationship to ClassEnrollment (proper domain entity)
     @OneToMany(mappedBy = "schedule")
     @JsonIgnore
-    private List<Transaction> transactions;
+    private List<ClassEnrollment> enrollments;
 
     public Schedule() {}
 
@@ -73,6 +79,45 @@ public class Schedule {
     public Integer getMaxParticipants() { return maxParticipants; }
     public void setMaxParticipants(Integer maxParticipants) { this.maxParticipants = maxParticipants; }
 
-    public List<Transaction> getTransactions() { return transactions; }
-    public void setTransactions(List<Transaction> transactions) { this.transactions = transactions; }
+    // REMOVED: Transactions getter/setter
+    // public List<Transaction> getTransactions() { return transactions; }
+    // public void setTransactions(List<Transaction> transactions) { this.transactions = transactions; }
+
+    // ADDED: Enrollments getter/setter
+    public List<ClassEnrollment> getEnrollments() { return enrollments; }
+    public void setEnrollments(List<ClassEnrollment> enrollments) { this.enrollments = enrollments; }
+
+    // Helper methods for business logic
+    public boolean hasAvailableSlots() {
+        return enrolledCount < maxParticipants;
+    }
+
+    public int getAvailableSlots() {
+        return maxParticipants - enrolledCount;
+    }
+
+    public boolean isFullyBooked() {
+        return enrolledCount >= maxParticipants;
+    }
+
+    public void incrementEnrolledCount() {
+        if (this.enrolledCount == null) {
+            this.enrolledCount = 0;
+        }
+        this.enrolledCount++;
+    }
+
+    public void decrementEnrolledCount() {
+        if (this.enrolledCount != null && this.enrolledCount > 0) {
+            this.enrolledCount--;
+        }
+    }
+
+    // Helper to get active enrollment count
+    public long getActiveEnrollmentCount() {
+        if (enrollments == null) return 0;
+        return enrollments.stream()
+                .filter(enrollment -> enrollment.isPaid() && !enrollment.getSessionCompleted())
+                .count();
+    }
 }

@@ -1,12 +1,8 @@
 package com.ironcore.ironcorebackend.controller;
 
-import com.ironcore.ironcorebackend.entity.User;
-import com.ironcore.ironcorebackend.entity.PaymentStatus;
-import com.ironcore.ironcorebackend.entity.Transaction;
-import com.ironcore.ironcorebackend.entity.Schedule;
-import com.ironcore.ironcorebackend.repository.UserRepository;
-import com.ironcore.ironcorebackend.repository.ScheduleRepository;
-import com.ironcore.ironcorebackend.repository.TransactionRepository;
+import com.ironcore.ironcorebackend.entity.*;
+import com.ironcore.ironcorebackend.repository.*;
+import com.ironcore.ironcorebackend.service.ClassEnrollmentService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -32,6 +28,9 @@ public class AdminController {
 
     @Autowired
     private TransactionRepository transactionRepository;
+
+    @Autowired
+    private ClassEnrollmentService classEnrollmentService;
 
     // Helper method to check if user is admin
     private ResponseEntity<?> verifyAdminAccess(HttpSession session) {
@@ -104,7 +103,7 @@ public class AdminController {
         }
     }
 
-    // NEW: Get enrolled users for a specific schedule
+    // NEW: Get enrolled users for a specific schedule - FIXED to use ClassEnrollment
     @GetMapping("/schedules/{scheduleId}/users")
     public ResponseEntity<?> getEnrolledUsers(@PathVariable Long scheduleId, HttpSession session) {
         // Verify admin access
@@ -120,27 +119,28 @@ public class AdminController {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
             }
 
-            // Get all transactions for this schedule with COMPLETED payment status and NOT completed session
-            List<Transaction> transactions = transactionRepository.findAll().stream()
-                .filter(t -> t.getSchedule() != null && 
-                           t.getSchedule().getId().equals(scheduleId) &&
-                           t.getPaymentStatus() == PaymentStatus.COMPLETED &&
-                           !Boolean.TRUE.equals(t.getSessionCompleted()))
+            // Get all class enrollments for this schedule with COMPLETED payment status and NOT completed session
+            List<ClassEnrollment> enrollments = classEnrollmentService.getAllEnrollments().stream()
+                .filter(enrollment -> 
+                    enrollment.getSchedule() != null && 
+                    enrollment.getSchedule().getId().equals(scheduleId) &&
+                    enrollment.isPaid() && // Use the helper method from ClassEnrollment
+                    !Boolean.TRUE.equals(enrollment.getSessionCompleted()))
                 .collect(Collectors.toList());
 
             // Map to user info
-            List<Map<String, Object>> enrolledUsers = transactions.stream()
-                .map(transaction -> {
+            List<Map<String, Object>> enrolledUsers = enrollments.stream()
+                .map(enrollment -> {
                     Map<String, Object> userInfo = new HashMap<>();
-                    User user = transaction.getUser();
+                    User user = enrollment.getUser();
                     
-                    userInfo.put("transactionId", transaction.getId());
+                    userInfo.put("enrollmentId", enrollment.getId());
                     userInfo.put("userId", user.getId());
                     userInfo.put("username", user.getUsername());
                     userInfo.put("email", user.getEmail());
-                    userInfo.put("transactionCode", transaction.getTransactionCode());
-                    userInfo.put("paymentDate", transaction.getPaymentDate());
-                    userInfo.put("sessionCompleted", transaction.getSessionCompleted());
+                    userInfo.put("transactionCode", enrollment.getTransaction().getTransactionCode());
+                    userInfo.put("paymentDate", enrollment.getTransaction().getPaymentDate());
+                    userInfo.put("sessionCompleted", enrollment.getSessionCompleted());
                     
                     return userInfo;
                 })
@@ -158,17 +158,17 @@ public class AdminController {
         }
     }
 
-    // NEW: Mark user's session as completed
-    @PutMapping("/schedules/{scheduleId}/users/{transactionId}/complete")
+    // NEW: Mark user's session as completed - FIXED to use ClassEnrollment
+    @PutMapping("/schedules/{scheduleId}/users/{enrollmentId}/complete")
     @ResponseBody
     public ResponseEntity<?> markSessionCompleted(
             @PathVariable Long scheduleId,
-            @PathVariable Long transactionId,
+            @PathVariable Long enrollmentId,
             HttpSession session) {
         
         System.out.println("=== Mark Session Completed Request ===");
         System.out.println("Schedule ID: " + scheduleId);
-        System.out.println("Transaction ID: " + transactionId);
+        System.out.println("Enrollment ID: " + enrollmentId);
         
         // Verify admin access
         ResponseEntity<?> accessCheck = verifyAdminAccess(session);
@@ -180,33 +180,34 @@ public class AdminController {
         System.out.println("Admin access verified");
 
         try {
-            // Find the transaction
-            Transaction transaction = transactionRepository.findById(transactionId).orElse(null);
-            if (transaction == null) {
-                System.out.println("Transaction not found: " + transactionId);
+            // Find the enrollment
+            ClassEnrollment enrollment = classEnrollmentService.getEnrollmentById(enrollmentId)
+                .orElse(null);
+            if (enrollment == null) {
+                System.out.println("Enrollment not found: " + enrollmentId);
                 Map<String, String> errorResponse = new HashMap<>();
-                errorResponse.put("message", "Transaction not found");
+                errorResponse.put("message", "Enrollment not found");
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
             }
             
-            System.out.println("Transaction found: " + transaction.getTransactionCode());
+            System.out.println("Enrollment found for user: " + enrollment.getUser().getUsername());
 
-            // Verify the transaction belongs to this schedule
-            if (transaction.getSchedule() == null) {
-                System.out.println("Transaction has no schedule");
+            // Verify the enrollment belongs to this schedule
+            if (enrollment.getSchedule() == null) {
+                System.out.println("Enrollment has no schedule");
                 Map<String, String> errorResponse = new HashMap<>();
-                errorResponse.put("message", "Transaction does not belong to any schedule");
+                errorResponse.put("message", "Enrollment does not belong to any schedule");
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
             }
             
-            if (!transaction.getSchedule().getId().equals(scheduleId)) {
-                System.out.println("Transaction schedule ID mismatch: " + transaction.getSchedule().getId() + " vs " + scheduleId);
+            if (!enrollment.getSchedule().getId().equals(scheduleId)) {
+                System.out.println("Enrollment schedule ID mismatch: " + enrollment.getSchedule().getId() + " vs " + scheduleId);
                 Map<String, String> errorResponse = new HashMap<>();
-                errorResponse.put("message", "Transaction does not belong to this schedule");
+                errorResponse.put("message", "Enrollment does not belong to this schedule");
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
             }
             
-            System.out.println("Transaction belongs to schedule: " + scheduleId);
+            System.out.println("Enrollment belongs to schedule: " + scheduleId);
 
             // Get the schedule
             Schedule schedule = scheduleRepository.findById(scheduleId).orElse(null);
@@ -220,7 +221,7 @@ public class AdminController {
             System.out.println("Schedule found. Current enrolled count: " + schedule.getEnrolledCount());
 
             // Check if session is already completed
-            if (Boolean.TRUE.equals(transaction.getSessionCompleted())) {
+            if (Boolean.TRUE.equals(enrollment.getSessionCompleted())) {
                 System.out.println("Session already completed");
                 Map<String, String> errorResponse = new HashMap<>();
                 errorResponse.put("message", "Session already marked as completed");
@@ -228,9 +229,9 @@ public class AdminController {
             }
 
             // Mark session as completed
-            transaction.setSessionCompleted(true);
-            transactionRepository.save(transaction);
-            System.out.println("Transaction marked as completed");
+            enrollment.setSessionCompleted(true);
+            classEnrollmentService.saveEnrollment(enrollment);
+            System.out.println("Enrollment marked as completed");
 
             // Update enrolled count (decrease by 1) to free up the slot
             if (schedule.getEnrolledCount() > 0) {

@@ -30,9 +30,15 @@ public class ClassEntity {
     @JsonIgnore  // ⭐ ADD THIS - Prevent circular reference
     private List<Schedule> schedules;
 
+    // REMOVED: Transactions relationship - Transactions are financial records, not directly linked to classes
+    // @OneToMany(mappedBy = "classEntity")
+    // @JsonIgnore
+    // private List<Transaction> transactions;
+
+    // ADDED: Relationship to ClassEnrollment (the proper domain entity)
     @OneToMany(mappedBy = "classEntity")
-    @JsonIgnore  // ⭐ ADD THIS - Prevent circular reference
-    private List<Transaction> transactions;
+    @JsonIgnore
+    private List<ClassEnrollment> enrollments;
 
     // Constructors
     public ClassEntity() {}
@@ -46,7 +52,7 @@ public class ClassEntity {
         this.price = price;
     }
 
-    // Getters and Setters (keep all existing ones)
+    // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -71,6 +77,24 @@ public class ClassEntity {
     public List<Schedule> getSchedules() { return schedules; }
     public void setSchedules(List<Schedule> schedules) { this.schedules = schedules; }
 
-    public List<Transaction> getTransactions() { return transactions; }
-    public void setTransactions(List<Transaction> transactions) { this.transactions = transactions; }
+    // REMOVED: Transactions getter/setter
+    // public List<Transaction> getTransactions() { return transactions; }
+    // public void setTransactions(List<Transaction> transactions) { this.transactions = transactions; }
+
+    // ADDED: Enrollments getter/setter
+    public List<ClassEnrollment> getEnrollments() { return enrollments; }
+    public void setEnrollments(List<ClassEnrollment> enrollments) { this.enrollments = enrollments; }
+
+    // Helper method to get active enrollment count
+    public long getActiveEnrollmentCount() {
+        if (enrollments == null) return 0;
+        return enrollments.stream()
+                .filter(enrollment -> enrollment.isPaid() && !enrollment.getSessionCompleted())
+                .count();
+    }
+
+    // Helper method to check if class has available slots
+    public boolean hasAvailableSlots() {
+        return getActiveEnrollmentCount() < maxParticipants;
+    }
 }

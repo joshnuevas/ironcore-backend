@@ -2,6 +2,8 @@ package com.ironcore.ironcorebackend.controller;
 
 import com.ironcore.ironcorebackend.entity.*;
 import com.ironcore.ironcorebackend.repository.*;
+import com.ironcore.ironcorebackend.service.ClassEnrollmentService;
+import com.ironcore.ironcorebackend.service.MembershipService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,7 +18,10 @@ import java.util.*;
 public class MembershipClassController {
 
     @Autowired
-    private TransactionRepository transactionRepository;
+    private MembershipService membershipService;
+
+    @Autowired
+    private ClassEnrollmentService classEnrollmentService;
 
     @Autowired
     private UserRepository userRepository;
@@ -24,52 +29,45 @@ public class MembershipClassController {
     @Autowired
     private ClassRepository classRepository;
 
+    @Autowired
+    private TransactionRepository transactionRepository;
+
     @PostMapping("/assign")
     public ResponseEntity<?> assignClassesToMembership(@RequestBody Map<String, Object> request) {
         try {
             Long userId = Long.valueOf(request.get("userId").toString());
-            Long membershipTransactionId = Long.valueOf(request.get("membershipTransactionId").toString());
+            Long membershipId = Long.valueOf(request.get("membershipId").toString()); // Changed from membershipTransactionId
             List<Integer> classIds = (List<Integer>) request.get("classIds");
 
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
-            Transaction membershipTransaction = transactionRepository.findById(membershipTransactionId)
-                    .orElseThrow(() -> new RuntimeException("Membership transaction not found"));
+            // Get the membership instead of transaction
+            Membership membership = membershipService.getMembershipById(membershipId)
+                    .orElseThrow(() -> new RuntimeException("Membership not found"));
 
-            // Create class access transactions for each selected class
-            List<Transaction> classTransactions = new ArrayList<>();
+            // Create class enrollments for each selected class
+            List<ClassEnrollment> classEnrollments = new ArrayList<>();
 
             for (Integer classId : classIds) {
                 ClassEntity classEntity = classRepository.findById(Long.valueOf(classId))
                         .orElseThrow(() -> new RuntimeException("Class not found: " + classId));
 
-                Transaction classTransaction = new Transaction();
-                classTransaction.setUser(user);
-                classTransaction.setUserEmail(user.getEmail());
-                classTransaction.setClassEntity(classEntity);
-                classTransaction.setClassName(classEntity.getName());
-                classTransaction.setMembershipType(membershipTransaction.getMembershipType());
-                classTransaction.setPaymentStatus(PaymentStatus.COMPLETED);
-                classTransaction.setPaymentDate(LocalDateTime.now());
-                classTransaction.setTotalAmount(0.0); // Included in membership
-                classTransaction.setProcessingFee(0.0);
-                classTransaction.setPaymentMethod("Membership");
-                classTransaction.setTransactionCode(generateClassAccessCode(classEntity.getName()));
+                ClassEnrollment classEnrollment = new ClassEnrollment(user, classEntity, null, membership.getTransaction());
+                classEnrollment.setSessionCompleted(false);
 
-                // Set membership validity period
-                classTransaction.setMembershipActivatedDate(membershipTransaction.getMembershipActivatedDate());
-                classTransaction.setMembershipExpiryDate(membershipTransaction.getMembershipExpiryDate());
-
-                classTransactions.add(classTransaction);
+                classEnrollments.add(classEnrollment);
             }
 
-            transactionRepository.saveAll(classTransactions);
+            // Save all enrollments
+            for (ClassEnrollment enrollment : classEnrollments) {
+                classEnrollmentService.saveEnrollment(enrollment);
+            }
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("message", "Classes assigned successfully");
-            response.put("classCount", classTransactions.size());
+            response.put("classCount", classEnrollments.size());
 
             return ResponseEntity.ok(response);
 
@@ -80,12 +78,5 @@ public class MembershipClassController {
             errorResponse.put("message", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
         }
-    }
-
-    private String generateClassAccessCode(String className) {
-        String prefix = "IRC";
-        String type = className.length() >= 3 ? className.substring(0, 3).toUpperCase() : className.toUpperCase();
-        String randomPart = UUID.randomUUID().toString().substring(0, 5).toUpperCase();
-        return String.format("%s-%s-%s", prefix, type, randomPart);
     }
 }

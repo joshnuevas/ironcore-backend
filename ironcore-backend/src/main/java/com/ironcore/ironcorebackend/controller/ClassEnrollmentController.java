@@ -43,11 +43,6 @@ public class ClassEnrollmentController {
         return ResponseEntity.ok(classEnrollmentService.getEnrollmentsByUser(userId));
     }
 
-    @GetMapping("/status/{status}")
-    public ResponseEntity<List<ClassEnrollment>> getEnrollmentsByPaymentStatus(@PathVariable PaymentStatus status) {
-        return ResponseEntity.ok(classEnrollmentService.getEnrollmentsByPaymentStatus(status));
-    }
-
     @PutMapping("/{enrollmentId}/complete-session")
     public ResponseEntity<Void> completeSession(@PathVariable Long enrollmentId) {
         classEnrollmentService.completeSession(enrollmentId);

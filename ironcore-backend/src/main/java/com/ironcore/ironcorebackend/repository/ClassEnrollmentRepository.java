@@ -16,14 +16,21 @@ import java.util.Optional;
 public interface ClassEnrollmentRepository extends JpaRepository<ClassEnrollment, Long> {
 
     Optional<ClassEnrollment> findByTransactionCode(String transactionCode);
-
     List<ClassEnrollment> findByUserId(Long userId);
-
-    List<ClassEnrollment> findByPaymentStatus(PaymentStatus paymentStatus);
-
+    Optional<ClassEnrollment> findByTransactionId(Long transactionId);
+    List<ClassEnrollment> findByUserIdAndClassEntityId(Long userId, Long classEntityId);
+    
+    @Query("SELECT ce FROM ClassEnrollment ce WHERE ce.schedule.id = :scheduleId")
+    List<ClassEnrollment> findByScheduleId(@Param("scheduleId") Long scheduleId);
+    
+    List<ClassEnrollment> findByUserIdAndSessionCompletedFalse(Long userId);
+    
+    // Find paid enrollments using transaction relationship
+    @Query("SELECT ce FROM ClassEnrollment ce WHERE ce.transaction.paymentStatus = com.ironcore.ironcorebackend.entity.PaymentStatus.COMPLETED")
+    List<ClassEnrollment> findPaidEnrollments();
+    
     @Transactional
     @Modifying
     @Query("UPDATE ClassEnrollment c SET c.sessionCompleted = true WHERE c.id = :enrollmentId")
     void markSessionCompleted(@Param("enrollmentId") Long enrollmentId);
-
 }

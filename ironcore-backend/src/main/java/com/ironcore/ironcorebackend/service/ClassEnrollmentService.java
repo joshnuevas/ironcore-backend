@@ -29,6 +29,7 @@ public class ClassEnrollmentService {
         return classEnrollmentRepository.findById(id);
     }
 
+    // UPDATED: Now uses the custom query
     public Optional<ClassEnrollment> getEnrollmentByTransactionCode(String code) {
         return classEnrollmentRepository.findByTransactionCode(code);
     }
@@ -37,11 +38,17 @@ public class ClassEnrollmentService {
         return classEnrollmentRepository.findByUserId(userId);
     }
 
-    public List<ClassEnrollment> getEnrollmentsByPaymentStatus(PaymentStatus status) {
-        return classEnrollmentRepository.findByPaymentStatus(status);
-    }
-
     public void completeSession(Long enrollmentId) {
         classEnrollmentRepository.markSessionCompleted(enrollmentId);
+    }
+    
+    // NEW: Get enrollments by schedule
+    public List<ClassEnrollment> getEnrollmentsBySchedule(Long scheduleId) {
+        return classEnrollmentRepository.findByScheduleId(scheduleId);
+    }
+    
+    // NEW: Get paid enrollments
+    public List<ClassEnrollment> getPaidEnrollments() {
+        return classEnrollmentRepository.findPaidEnrollments();
     }
 }

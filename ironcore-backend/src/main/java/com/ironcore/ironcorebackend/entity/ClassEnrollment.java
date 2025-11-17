@@ -11,41 +11,64 @@ public class ClassEnrollment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
     private User user;
 
-    // Class info
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "class_id")
     private ClassEntity classEntity;
-    private String className;
 
-    // Schedule info
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "schedule_id")
     private Schedule schedule;
-    private String scheduleDay;
-    private String scheduleTime;
-    private String scheduleDate;
 
-    // Transaction info
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "transaction_id")
     private Transaction transaction;
-    private String transactionCode;
-    private Double totalAmount;
-    private Double processingFee;
-    private String paymentMethod;
-
-    @Enumerated(EnumType.STRING)
-    private PaymentStatus paymentStatus;
 
     private Boolean sessionCompleted = false;
-    private LocalDateTime paymentDate;
 
-    // ===== Getters and Setters =====
+    // Keep only these payment fields
+    @Column(name = "payment_method")
+    private String paymentMethod;
+    
+    @Column(name = "total_amount")
+    private Double totalAmount;
+    
+    @Column(name = "transaction_code")
+    private String transactionCode;
+
+    // REMOVED: payment_status, rating, feedback, attended_at
+
+    // No-arg constructor
+    public ClassEnrollment() {
+    }
+
+    // Constructor
+    public ClassEnrollment(User user, ClassEntity classEntity, Schedule schedule, Transaction transaction) {
+        this.user = user;
+        this.classEntity = classEntity;
+        this.schedule = schedule;
+        this.transaction = transaction;
+        this.sessionCompleted = false;
+        
+        // Copy values from transaction
+        if (transaction != null) {
+            this.paymentMethod = transaction.getPaymentMethod();
+            this.totalAmount = transaction.getTotalAmount();
+            this.transactionCode = transaction.getTransactionCode();
+        }
+    }
+
+    // Helper methods - check payment status through transaction relationship
+    public boolean isPaid() {
+        return transaction != null && PaymentStatus.COMPLETED.equals(transaction.getPaymentStatus());
+    }
+
+    // Getters and setters
     public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
 
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }
@@ -53,42 +76,31 @@ public class ClassEnrollment {
     public ClassEntity getClassEntity() { return classEntity; }
     public void setClassEntity(ClassEntity classEntity) { this.classEntity = classEntity; }
 
-    public String getClassName() { return className; }
-    public void setClassName(String className) { this.className = className; }
-
     public Schedule getSchedule() { return schedule; }
     public void setSchedule(Schedule schedule) { this.schedule = schedule; }
 
-    public String getScheduleDay() { return scheduleDay; }
-    public void setScheduleDay(String scheduleDay) { this.scheduleDay = scheduleDay; }
-
-    public String getScheduleTime() { return scheduleTime; }
-    public void setScheduleTime(String scheduleTime) { this.scheduleTime = scheduleTime; }
-
-    public String getScheduleDate() { return scheduleDate; }
-    public void setScheduleDate(String scheduleDate) { this.scheduleDate = scheduleDate; }
-
     public Transaction getTransaction() { return transaction; }
-    public void setTransaction(Transaction transaction) { this.transaction = transaction; }
-
-    public String getTransactionCode() { return transactionCode; }
-    public void setTransactionCode(String transactionCode) { this.transactionCode = transactionCode; }
-
-    public Double getTotalAmount() { return totalAmount; }
-    public void setTotalAmount(Double totalAmount) { this.totalAmount = totalAmount; }
-
-    public Double getProcessingFee() { return processingFee; }
-    public void setProcessingFee(Double processingFee) { this.processingFee = processingFee; }
-
-    public String getPaymentMethod() { return paymentMethod; }
-    public void setPaymentMethod(String paymentMethod) { this.paymentMethod = paymentMethod; }
-
-    public PaymentStatus getPaymentStatus() { return paymentStatus; }
-    public void setPaymentStatus(PaymentStatus paymentStatus) { this.paymentStatus = paymentStatus; }
+    public void setTransaction(Transaction transaction) { 
+        this.transaction = transaction;
+        // Update the copied fields
+        if (transaction != null) {
+            this.paymentMethod = transaction.getPaymentMethod();
+            this.totalAmount = transaction.getTotalAmount();
+            this.transactionCode = transaction.getTransactionCode();
+        }
+    }
 
     public Boolean getSessionCompleted() { return sessionCompleted; }
     public void setSessionCompleted(Boolean sessionCompleted) { this.sessionCompleted = sessionCompleted; }
 
-    public LocalDateTime getPaymentDate() { return paymentDate; }
-    public void setPaymentDate(LocalDateTime paymentDate) { this.paymentDate = paymentDate; }
+    public String getPaymentMethod() { return paymentMethod; }
+    public void setPaymentMethod(String paymentMethod) { this.paymentMethod = paymentMethod; }
+
+    public Double getTotalAmount() { return totalAmount; }
+    public void setTotalAmount(Double totalAmount) { this.totalAmount = totalAmount; }
+
+    public String getTransactionCode() { return transactionCode; }
+    public void setTransactionCode(String transactionCode) { this.transactionCode = transactionCode; }
+
+    // REMOVED: getPaymentStatus(), setPaymentStatus(), getRating(), setRating(), getFeedback(), setFeedback(), getAttendedAt(), setAttendedAt()
 }

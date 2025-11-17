@@ -12,30 +12,10 @@ public class Transaction {
     private Long id;
 
     @ManyToOne
-    @JoinColumn(name = "user_id")
+    @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    private String userEmail;
-
-    // Membership fields
-    private String membershipType;
-    private LocalDateTime membershipActivatedDate;
-    private LocalDateTime membershipExpiryDate;
-
-    // Class fields
-    @ManyToOne
-    @JoinColumn(name = "class_id")
-    private ClassEntity classEntity;
-    private String className;
-
-    @ManyToOne
-    @JoinColumn(name = "schedule_id")
-    private Schedule schedule;
-    private String scheduleDay;
-    private String scheduleTime;
-    private String scheduleDate;
-
-    // Transaction / payment fields
+    // Pure financial data only
     private String transactionCode;
     private Double totalAmount;
     private Double processingFee;
@@ -46,43 +26,17 @@ public class Transaction {
 
     private LocalDateTime paymentDate;
 
-    private Boolean sessionCompleted = false;
+    // REMOVED: userEmail field (duplicate data)
+    // REMOVED: All membership fields  
+    // REMOVED: All class/schedule fields
+    // REMOVED: sessionCompleted field
 
-    // Getters and setters
+    // Getters and Setters
     public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
 
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }
-
-    public String getUserEmail() { return userEmail; }
-    public void setUserEmail(String userEmail) { this.userEmail = userEmail; }
-
-    public String getMembershipType() { return membershipType; }
-    public void setMembershipType(String membershipType) { this.membershipType = membershipType; }
-
-    public LocalDateTime getMembershipActivatedDate() { return membershipActivatedDate; }
-    public void setMembershipActivatedDate(LocalDateTime membershipActivatedDate) { this.membershipActivatedDate = membershipActivatedDate; }
-
-    public LocalDateTime getMembershipExpiryDate() { return membershipExpiryDate; }
-    public void setMembershipExpiryDate(LocalDateTime membershipExpiryDate) { this.membershipExpiryDate = membershipExpiryDate; }
-
-    public ClassEntity getClassEntity() { return classEntity; }
-    public void setClassEntity(ClassEntity classEntity) { this.classEntity = classEntity; }
-
-    public String getClassName() { return className; }
-    public void setClassName(String className) { this.className = className; }
-
-    public Schedule getSchedule() { return schedule; }
-    public void setSchedule(Schedule schedule) { this.schedule = schedule; }
-
-    public String getScheduleDay() { return scheduleDay; }
-    public void setScheduleDay(String scheduleDay) { this.scheduleDay = scheduleDay; }
-
-    public String getScheduleTime() { return scheduleTime; }
-    public void setScheduleTime(String scheduleTime) { this.scheduleTime = scheduleTime; }
-
-    public String getScheduleDate() { return scheduleDate; }
-    public void setScheduleDate(String scheduleDate) { this.scheduleDate = scheduleDate; }
 
     public String getTransactionCode() { return transactionCode; }
     public void setTransactionCode(String transactionCode) { this.transactionCode = transactionCode; }
@@ -101,8 +55,4 @@ public class Transaction {
 
     public LocalDateTime getPaymentDate() { return paymentDate; }
     public void setPaymentDate(LocalDateTime paymentDate) { this.paymentDate = paymentDate; }
-
-    public Boolean getSessionCompleted() { return sessionCompleted; }
-    public void setSessionCompleted(Boolean sessionCompleted) { this.sessionCompleted = sessionCompleted; }
-
 }
