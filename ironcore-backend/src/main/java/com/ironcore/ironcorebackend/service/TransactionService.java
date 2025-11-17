@@ -58,6 +58,10 @@ public class TransactionService {
         logger.info("Request - UserId: {}, MembershipType: {}, ScheduleId: {}, PaymentStatus: {}", 
                    request.getUserId(), request.getMembershipType(), request.getScheduleId(), request.getPaymentStatus());
         
+        logger.info("=== RECEIVED REQUEST ===");
+        logger.info("ScheduleId: {}, ClassId: {}", request.getScheduleId(), request.getClassId());
+        logger.info("PaymentStatus: {}", request.getPaymentStatus());
+
         // Validate request
         validateTransactionRequest(request);
         
@@ -209,6 +213,9 @@ public class TransactionService {
         logger.info("💾 Stored transaction context for ID: {}", transactionId);
         logger.info("Context - MembershipType: {}, ScheduleId: {}, ClassId: {}", 
                    context.getMembershipType(), context.getScheduleId(), context.getClassId());
+
+        logger.info("💾 Storing context - ScheduleId: {}, ClassId: {}", 
+        context.getScheduleId(), context.getClassId());           
     }
 
     // Generate a unique transaction code
