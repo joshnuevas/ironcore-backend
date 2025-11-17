@@ -4,8 +4,8 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "transactions")
-public class Transaction {
+@Table(name = "class_enrollments")
+public class ClassEnrollment {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -15,19 +15,13 @@ public class Transaction {
     @JoinColumn(name = "user_id")
     private User user;
 
-    private String userEmail;
-
-    // Membership fields
-    private String membershipType;
-    private LocalDateTime membershipActivatedDate;
-    private LocalDateTime membershipExpiryDate;
-
-    // Class fields
+    // Class info
     @ManyToOne
     @JoinColumn(name = "class_id")
     private ClassEntity classEntity;
     private String className;
 
+    // Schedule info
     @ManyToOne
     @JoinColumn(name = "schedule_id")
     private Schedule schedule;
@@ -35,7 +29,10 @@ public class Transaction {
     private String scheduleTime;
     private String scheduleDate;
 
-    // Transaction / payment fields
+    // Transaction info
+    @ManyToOne
+    @JoinColumn(name = "transaction_id")
+    private Transaction transaction;
     private String transactionCode;
     private Double totalAmount;
     private Double processingFee;
@@ -44,27 +41,14 @@ public class Transaction {
     @Enumerated(EnumType.STRING)
     private PaymentStatus paymentStatus;
 
+    private Boolean sessionCompleted = false;
     private LocalDateTime paymentDate;
 
-    private Boolean sessionCompleted = false;
-
-    // Getters and setters
+    // ===== Getters and Setters =====
     public Long getId() { return id; }
 
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }
-
-    public String getUserEmail() { return userEmail; }
-    public void setUserEmail(String userEmail) { this.userEmail = userEmail; }
-
-    public String getMembershipType() { return membershipType; }
-    public void setMembershipType(String membershipType) { this.membershipType = membershipType; }
-
-    public LocalDateTime getMembershipActivatedDate() { return membershipActivatedDate; }
-    public void setMembershipActivatedDate(LocalDateTime membershipActivatedDate) { this.membershipActivatedDate = membershipActivatedDate; }
-
-    public LocalDateTime getMembershipExpiryDate() { return membershipExpiryDate; }
-    public void setMembershipExpiryDate(LocalDateTime membershipExpiryDate) { this.membershipExpiryDate = membershipExpiryDate; }
 
     public ClassEntity getClassEntity() { return classEntity; }
     public void setClassEntity(ClassEntity classEntity) { this.classEntity = classEntity; }
@@ -84,6 +68,9 @@ public class Transaction {
     public String getScheduleDate() { return scheduleDate; }
     public void setScheduleDate(String scheduleDate) { this.scheduleDate = scheduleDate; }
 
+    public Transaction getTransaction() { return transaction; }
+    public void setTransaction(Transaction transaction) { this.transaction = transaction; }
+
     public String getTransactionCode() { return transactionCode; }
     public void setTransactionCode(String transactionCode) { this.transactionCode = transactionCode; }
 
@@ -99,10 +86,9 @@ public class Transaction {
     public PaymentStatus getPaymentStatus() { return paymentStatus; }
     public void setPaymentStatus(PaymentStatus paymentStatus) { this.paymentStatus = paymentStatus; }
 
-    public LocalDateTime getPaymentDate() { return paymentDate; }
-    public void setPaymentDate(LocalDateTime paymentDate) { this.paymentDate = paymentDate; }
-
     public Boolean getSessionCompleted() { return sessionCompleted; }
     public void setSessionCompleted(Boolean sessionCompleted) { this.sessionCompleted = sessionCompleted; }
 
+    public LocalDateTime getPaymentDate() { return paymentDate; }
+    public void setPaymentDate(LocalDateTime paymentDate) { this.paymentDate = paymentDate; }
 }
