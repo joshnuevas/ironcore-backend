@@ -136,11 +136,20 @@ public class TransactionService {
         transaction.setProcessingFee(request.getProcessingFee() != null ? request.getProcessingFee() : 0.0);
         transaction.setTotalAmount(request.getTotalAmount() != null ? request.getTotalAmount() : 0.0);
         transaction.setPaymentMethod(request.getPaymentMethod() != null ? request.getPaymentMethod() : "UNKNOWN");
-        
+
         PaymentStatus paymentStatus = PaymentStatus.valueOf(request.getPaymentStatus().toUpperCase());
         transaction.setPaymentStatus(paymentStatus);
         transaction.setPaymentDate(LocalDateTime.now());
-        
+
+        // ⭐ NEW: infer transaction type
+        if (request.getMembershipType() != null) {
+            transaction.setTransactionType(TransactionType.MEMBERSHIP);
+        } else if (request.getScheduleId() != null || request.getClassId() != null) {
+            transaction.setTransactionType(TransactionType.CLASS);
+        } else {
+            transaction.setTransactionType(TransactionType.GENERIC);
+        }
+
         return transaction;
     }
 
@@ -268,25 +277,65 @@ public class TransactionService {
     private void createClassEnrollmentFromTransaction(Transaction transaction, Schedule schedule, ClassEntity classEntity) {
         try {
             logger.info("=== CREATING CLASS ENROLLMENT ===");
-            
-            ClassEnrollment enrollment = new ClassEnrollment(transaction.getUser(), classEntity, schedule, transaction);
+
+            Long userId = transaction.getUser().getId();
+            String timeSlot = schedule.getTimeSlot();
+            var date = schedule.getDate();
+
+            // ======================================================
+            // 🔍 1. CHECK FOR SCHEDULE CONFLICTS
+            // ======================================================
+            logger.info("Checking for schedule conflicts for User {} on {} at {}",
+                    userId, date, timeSlot);
+
+            List<ClassEnrollment> conflicts = classEnrollmentRepository.findConflictingSchedules(
+                    userId,
+                    date,
+                    timeSlot
+            );
+
+            if (!conflicts.isEmpty()) {
+                logger.warn("❌ Schedule conflict detected. Cannot enroll user {}.", userId);
+
+                throw new RuntimeException(
+                        "Cannot enroll. You already booked another class on "
+                                + date + " at " + timeSlot + "."
+                );
+            }
+
+            // ======================================================
+            // 2. Create enrollment
+            // ======================================================
+            ClassEnrollment enrollment =
+                    new ClassEnrollment(transaction.getUser(), classEntity, schedule, transaction);
             enrollment.setSessionCompleted(false);
-            
-            logger.info("Enrollment Details - Class: {}, Schedule: {}, User: {}", 
-                       classEntity.getName(), schedule.getId(), enrollment.getUser().getUsername());
-            
-            // Update schedule enrollment count
-            int currentEnrolledCount = schedule.getEnrolledCount() != null ? schedule.getEnrolledCount() : 0;
+
+            logger.info("Enrollment Details - Class: {}, Schedule: {}, User: {}",
+                    classEntity.getName(), schedule.getId(), transaction.getUser().getUsername());
+
+            // ======================================================
+            // 3. Update Schedule Enrollment Count
+            // ======================================================
+            int currentEnrolledCount =
+                    schedule.getEnrolledCount() != null ? schedule.getEnrolledCount() : 0;
+
             schedule.setEnrolledCount(currentEnrolledCount + 1);
             scheduleRepository.save(schedule);
-            logger.info("✅ Schedule enrolled count updated to: {}", schedule.getEnrolledCount());
-            
+
+            logger.info("✅ Schedule enrolled count updated from {} to {}",
+                    currentEnrolledCount, schedule.getEnrolledCount());
+
+            // ======================================================
+            // 4. Save Enrollment
+            // ======================================================
             ClassEnrollment savedEnrollment = classEnrollmentRepository.save(enrollment);
+
             logger.info("✅ Enrollment saved with ID: {}", savedEnrollment.getId());
             logger.info("=== ENROLLMENT CREATION COMPLETE ===");
-            
+
         } catch (Exception e) {
-            logger.error("❌ Error creating class enrollment for transaction: {}", transaction.getId(), e);
+            logger.error("❌ Error creating class enrollment for transaction {}: {}",
+                    transaction.getId(), e.getMessage(), e);
             throw new RuntimeException("Failed to create class enrollment: " + e.getMessage(), e);
         }
     }
@@ -403,8 +452,10 @@ public class TransactionService {
         try {
             logger.info("🔄 Creating class enrollment from stored context...");
             logger.info("Context - ScheduleId: {}, ClassId: {}", context.getScheduleId(), context.getClassId());
-            
-            // Validate required data
+
+            // ======================================================
+            // 0. Validate required data
+            // ======================================================
             if (context.getScheduleId() == null) {
                 throw new IllegalArgumentException("ScheduleId is null in context");
             }
@@ -412,54 +463,102 @@ public class TransactionService {
                 throw new IllegalArgumentException("ClassId is null in context");
             }
 
-            // Get schedule and class entities
+            // ======================================================
+            // 1. Fetch Schedule and Class
+            // ======================================================
             logger.info("🔍 Fetching schedule with ID: {}", context.getScheduleId());
             Schedule schedule = scheduleRepository.findById(context.getScheduleId())
                     .orElseThrow(() -> new RuntimeException("Schedule not found with ID: " + context.getScheduleId()));
-            
+
             logger.info("🔍 Fetching class with ID: {}", context.getClassId());
             ClassEntity classEntity = classRepository.findById(context.getClassId())
                     .orElseThrow(() -> new RuntimeException("Class not found with ID: " + context.getClassId()));
 
             logger.info("✅ Found schedule: {} and class: {}", schedule.getId(), classEntity.getName());
 
-            // Check if enrollment already exists
-            boolean existingEnrollment = classEnrollmentRepository.findByUserIdAndClassEntityId(
-                transaction.getUser().getId(), context.getClassId()
-            ).stream().anyMatch(enrollment -> 
-                enrollment.isPaid() && !enrollment.getSessionCompleted()
+            Long userId   = transaction.getUser().getId();
+            var  date     = schedule.getDate();
+            String timeSlot = schedule.getTimeSlot();
+
+            // ======================================================
+            // 2. CHECK FOR SCHEDULE CONFLICTS (same date + timeSlot)
+            //    Prevents user from booking TWO classes at same time
+            // ======================================================
+            logger.info("Checking for schedule conflicts for User {} on {} at {} (stored context)",
+                    userId, date, timeSlot);
+
+            var conflicts = classEnrollmentRepository.findConflictingSchedules(
+                    userId,
+                    date,
+                    timeSlot
             );
 
-            if (existingEnrollment) {
-                logger.warn("⚠️ Active enrollment already exists for user {} in class {}", 
-                           transaction.getUser().getId(), context.getClassId());
+            if (!conflicts.isEmpty()) {
+                logger.warn("❌ Schedule conflict detected for user {} on {} at {} (stored context)",
+                        userId, date, timeSlot);
+
+                throw new RuntimeException(
+                        "Cannot enroll. You already booked another class on "
+                                + date + " at " + timeSlot + "."
+                );
+            }
+
+            // ======================================================
+            // 3. CHECK FOR DUPLICATE IN SAME CLASS + SCHEDULE
+            //    (user, class, scheduleId) – same as Option 1
+            // ======================================================
+            boolean existingEnrollmentSameSchedule = classEnrollmentRepository
+                    .findByUserIdAndClassEntityIdAndScheduleId(
+                            userId,
+                            context.getClassId(),
+                            context.getScheduleId()
+                    )
+                    .stream()
+                    .anyMatch(enrollment ->
+                            enrollment.isPaid() &&
+                            !Boolean.TRUE.equals(enrollment.getSessionCompleted())
+                    );
+
+            if (existingEnrollmentSameSchedule) {
+                logger.warn("⚠️ Active enrollment already exists for user {} in class {} and schedule {}",
+                        userId, context.getClassId(), context.getScheduleId());
                 return;
             }
 
-            ClassEnrollment enrollment = new ClassEnrollment(transaction.getUser(), classEntity, schedule, transaction);
+            // ======================================================
+            // 4. Create Enrollment
+            // ======================================================
+            ClassEnrollment enrollment =
+                    new ClassEnrollment(transaction.getUser(), classEntity, schedule, transaction);
             enrollment.setSessionCompleted(false);
-            
-            logger.info("💾 Saving class enrollment...");
 
-            // Update schedule enrollment count
-            int currentEnrolledCount = schedule.getEnrolledCount() != null ? schedule.getEnrolledCount() : 0;
+            logger.info("💾 Saving class enrollment from stored context...");
+
+            // ======================================================
+            // 5. Update Schedule Enrollment Count
+            // ======================================================
+            int currentEnrolledCount =
+                    schedule.getEnrolledCount() != null ? schedule.getEnrolledCount() : 0;
+
             schedule.setEnrolledCount(currentEnrolledCount + 1);
-            logger.info("📊 Updating schedule enrollment count from {} to {}", 
-                       currentEnrolledCount, schedule.getEnrolledCount());
-            
+            logger.info("📊 Updating schedule enrollment count from {} to {} (stored context)",
+                    currentEnrolledCount, schedule.getEnrolledCount());
+
             scheduleRepository.save(schedule);
-            
+
             ClassEnrollment savedEnrollment = classEnrollmentRepository.save(enrollment);
             logger.info("✅ Class enrollment created with ID: {}", savedEnrollment.getId());
             logger.info("✅ Schedule enrollment count updated to: {}", schedule.getEnrolledCount());
-            
-            // Clean up stored context
+
+            // ======================================================
+            // 6. Clean up stored context
+            // ======================================================
             transactionContexts.remove(transaction.getId());
             logger.info("🧹 Cleaned up stored context for transaction: {}", transaction.getId());
-            
+
         } catch (Exception e) {
-            logger.error("❌ CRITICAL ERROR creating class enrollment from context for transaction: {}", 
-                       transaction.getId(), e);
+            logger.error("❌ CRITICAL ERROR creating class enrollment from context for transaction: {}",
+                    transaction.getId(), e);
             throw new RuntimeException("Failed to create class enrollment: " + e.getMessage(), e);
         }
     }

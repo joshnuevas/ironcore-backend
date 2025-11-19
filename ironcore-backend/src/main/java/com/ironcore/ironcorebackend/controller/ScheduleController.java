@@ -98,7 +98,6 @@ public class ScheduleController {
         
         Schedule schedule = new Schedule();
         schedule.setClassEntity(classEntity);
-        schedule.setClassName(classEntity.getName()); // ⭐ Automatically set className
         schedule.setDay(scheduleData.get("day").toString());
         schedule.setTimeSlot(scheduleData.get("timeSlot").toString());
         schedule.setDate(LocalDate.parse(scheduleData.get("date").toString()));

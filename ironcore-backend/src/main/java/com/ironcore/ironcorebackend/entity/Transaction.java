@@ -15,6 +15,11 @@ public class Transaction {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    // NEW: transaction type
+    @Enumerated(EnumType.STRING)
+    @Column(name = "transaction_type")
+    private TransactionType transactionType;
+
     // Pure financial data only
     private String transactionCode;
     private Double totalAmount;
@@ -26,17 +31,15 @@ public class Transaction {
 
     private LocalDateTime paymentDate;
 
-    // REMOVED: userEmail field (duplicate data)
-    // REMOVED: All membership fields  
-    // REMOVED: All class/schedule fields
-    // REMOVED: sessionCompleted field
-
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }
+
+    public TransactionType getTransactionType() { return transactionType; }
+    public void setTransactionType(TransactionType transactionType) { this.transactionType = transactionType; }
 
     public String getTransactionCode() { return transactionCode; }
     public void setTransactionCode(String transactionCode) { this.transactionCode = transactionCode; }

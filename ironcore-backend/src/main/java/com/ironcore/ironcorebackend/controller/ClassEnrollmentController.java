@@ -1,8 +1,8 @@
 package com.ironcore.ironcorebackend.controller;
 
 import com.ironcore.ironcorebackend.entity.ClassEnrollment;
-import com.ironcore.ironcorebackend.entity.PaymentStatus;
 import com.ironcore.ironcorebackend.service.ClassEnrollmentService;
+import com.ironcore.ironcorebackend.service.ClassEnrollmentService.ScheduleConflictResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -49,4 +49,16 @@ public class ClassEnrollmentController {
         return ResponseEntity.ok().build();
     }
 
+    // ================================
+    // 🔍 New: schedule conflict check
+    // ================================
+    @GetMapping("/check-conflict")
+    public ResponseEntity<ScheduleConflictResponse> checkScheduleConflict(
+            @RequestParam Long userId,
+            @RequestParam Long scheduleId
+    ) {
+        ScheduleConflictResponse response =
+                classEnrollmentService.checkScheduleConflict(userId, scheduleId);
+        return ResponseEntity.ok(response);
+    }
 }

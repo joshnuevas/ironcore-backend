@@ -18,9 +18,6 @@ public class Schedule {
     @JsonIgnore
     private ClassEntity classEntity;
 
-    @Column(name = "class_name", nullable = true)
-    private String className;
-
     @Column(nullable = false)
     private String day;
 
@@ -55,14 +52,7 @@ public class Schedule {
     public ClassEntity getClassEntity() { return classEntity; }
     public void setClassEntity(ClassEntity classEntity) { 
         this.classEntity = classEntity;
-        // ⭐ Auto-set className when classEntity is set
-        if (classEntity != null) {
-            this.className = classEntity.getName();
-        }
     }
-
-    public String getClassName() { return className; }
-    public void setClassName(String className) { this.className = className; }
 
     public String getDay() { return day; }
     public void setDay(String day) { this.day = day; }
