@@ -1,21 +1,21 @@
 package com.ironcore.ironcorebackend.controller;
 
+import com.ironcore.ironcorebackend.entity.*;
 import com.ironcore.ironcorebackend.dto.TransactionRequest;
-import com.ironcore.ironcorebackend.entity.Transaction;
-import com.ironcore.ironcorebackend.entity.PaymentStatus;
-import com.ironcore.ironcorebackend.repository.TransactionRepository;
-import com.ironcore.ironcorebackend.repository.ScheduleRepository;
+import com.ironcore.ironcorebackend.service.MembershipService;
 import com.ironcore.ironcorebackend.service.TransactionService;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.ironcore.ironcorebackend.repository.ClassEnrollmentRepository;
+import com.ironcore.ironcorebackend.repository.MembershipRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+import java.util.Optional;
 import java.time.LocalDateTime;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/transactions")
@@ -23,333 +23,349 @@ import java.util.Optional;
 public class TransactionController {
 
     private final TransactionService transactionService;
-    
-    @Autowired
-    private TransactionRepository transactionRepository;
-    
-    @Autowired
-    private ScheduleRepository scheduleRepository;
+    private final ClassEnrollmentRepository classEnrollmentRepository;
+    private final MembershipRepository membershipRepository;
+    private final MembershipService membershipService;
 
-    public TransactionController(TransactionService transactionService) {
+    public TransactionController(TransactionService transactionService,
+                                ClassEnrollmentRepository classEnrollmentRepository,
+                                MembershipRepository membershipRepository,
+                                MembershipService membershipService) {
         this.transactionService = transactionService;
+        this.classEnrollmentRepository = classEnrollmentRepository;
+        this.membershipRepository = membershipRepository;
+        this.membershipService = membershipService; 
     }
 
     @PostMapping
-    public ResponseEntity<?> createTransaction(@RequestBody TransactionRequest request) {
-        try {
-            // Check for active membership before creating transaction
-            // ⭐ Only check if trying to buy a MONTHLY membership (not SESSION)
-            if (request.getMembershipType() != null 
-                && !request.getMembershipType().isEmpty() 
-                && !"SESSION".equals(request.getMembershipType())) {
-                
-                List<Transaction> activeMemberships = 
-                    transactionRepository.findActiveMembershipsByUser(
-                        request.getUserId(), 
-                        LocalDateTime.now()
-                    );
-                
-                // ⭐ Only block if they have an active MONTHLY membership (filter out SESSION)
-                Transaction activeMonthlyMembership = null;
-                for (Transaction t : activeMemberships) {
-                    if (!"SESSION".equals(t.getMembershipType())) {
-                        activeMonthlyMembership = t;
-                        break;
-                    }
-                }
-                
-                if (activeMonthlyMembership != null) {
-                    Map<String, Object> errorResponse = new HashMap<>();
-                    errorResponse.put("error", "ACTIVE_MEMBERSHIP_EXISTS");
-                    errorResponse.put("message", "You already have an active " + activeMonthlyMembership.getMembershipType() + " membership");
-                    errorResponse.put("membershipType", activeMonthlyMembership.getMembershipType());
-                    errorResponse.put("membershipActivatedDate", activeMonthlyMembership.getMembershipActivatedDate());
-                    errorResponse.put("membershipExpiryDate", activeMonthlyMembership.getMembershipExpiryDate());
-                    errorResponse.put("transactionCode", activeMonthlyMembership.getTransactionCode());
-                    
-                    return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
-                }
-            }
-            
-            // Check for active class enrollment before creating transaction
-            if (request.getClassId() != null) {
-                Optional<Transaction> activeEnrollment = 
-                    transactionRepository.findActiveEnrollmentByUserAndClass(
-                        request.getUserId(), 
-                        request.getClassId()
-                    );
-                
-                if (activeEnrollment.isPresent()) {
-                    Transaction existing = activeEnrollment.get();
-                    Map<String, Object> errorResponse = new HashMap<>();
-                    errorResponse.put("error", "ACTIVE_ENROLLMENT_EXISTS");
-                    errorResponse.put("message", "You already have an active enrollment for this class");
-                    errorResponse.put("className", existing.getClassName());
-                    errorResponse.put("scheduleDay", existing.getScheduleDay());
-                    errorResponse.put("scheduleTime", existing.getScheduleTime());
-                    errorResponse.put("scheduleDate", existing.getScheduleDate());
-                    errorResponse.put("transactionCode", existing.getTransactionCode());
-                    // Add membership-related fields
-                    errorResponse.put("membershipType", existing.getMembershipType());
-                    errorResponse.put("membershipActivatedDate", existing.getMembershipActivatedDate());
-                    errorResponse.put("membershipExpiryDate", existing.getMembershipExpiryDate());
-                    
-                    return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
-                }
-            }
-            
-            Transaction savedTransaction = transactionService.createTransactionFromRequest(request);
-            return ResponseEntity.ok(savedTransaction);
-        } catch (Exception e) {
-            e.printStackTrace();
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("error", "TRANSACTION_CREATION_FAILED");
-            errorResponse.put("message", e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
-        }
+    public ResponseEntity<Transaction> createTransaction(@RequestBody TransactionRequest request) {
+        Transaction transaction = transactionService.createTransaction(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(transaction);
     }
 
     @GetMapping
-    public ResponseEntity<List<Transaction>> getTransactions() {
+    public ResponseEntity<List<Transaction>> getAllTransactions() {
         return ResponseEntity.ok(transactionService.getAllTransactions());
     }
 
-    @PutMapping("/{transactionId}/status")
-    public ResponseEntity<?> updateTransactionStatus(
-            @PathVariable Long transactionId,
-            @RequestParam String status) {
-        
+    @GetMapping("/{transactionCode}")
+    public ResponseEntity<Transaction> getTransactionByCode(@PathVariable String transactionCode) {
+        Optional<Transaction> transaction = transactionService.getTransactionByCode(transactionCode);
+        return transaction.map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // UPDATED: Returns combined data for frontend
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<?> getTransactionsByUser(@PathVariable Long userId) {
         try {
-            Transaction transaction = transactionRepository.findById(transactionId)
-                .orElseThrow(() -> new RuntimeException("Transaction not found"));
+            List<Transaction> transactions = transactionService.getTransactionsByUser(userId);
             
-            PaymentStatus oldStatus = transaction.getPaymentStatus();
-            PaymentStatus newStatus = PaymentStatus.valueOf(status);
+            // Transform transactions to include class and membership data
+            List<Map<String, Object>> transactionDetails = transactions.stream()
+                .map(transaction -> {
+                    Map<String, Object> result = new HashMap<>();
+                    
+                    // Basic transaction data
+                    result.put("id", transaction.getId());
+                    result.put("transactionCode", transaction.getTransactionCode());
+                    result.put("totalAmount", transaction.getTotalAmount());
+                    result.put("processingFee", transaction.getProcessingFee());
+                    result.put("paymentMethod", transaction.getPaymentMethod());
+                    result.put("paymentStatus", transaction.getPaymentStatus());
+                    result.put("paymentDate", transaction.getPaymentDate());
+                    
+                    // Check for ClassEnrollment
+                    Optional<ClassEnrollment> enrollment = classEnrollmentRepository.findByTransactionId(transaction.getId());
+                    if (enrollment.isPresent()) {
+                        ClassEnrollment ce = enrollment.get();
+                        result.put("className", ce.getClassEntity() != null ? ce.getClassEntity().getName() : null);
+                        result.put("classId", ce.getClassEntity() != null ? ce.getClassEntity().getId() : null);
+                        result.put("sessionCompleted", ce.getSessionCompleted());
+                        
+                        // Schedule data
+                        if (ce.getSchedule() != null) {
+                            result.put("scheduleId", ce.getSchedule().getId());
+                            result.put("scheduleDay", ce.getSchedule().getDay());
+                            result.put("scheduleDate", ce.getSchedule().getDate());
+                            result.put("scheduleTime", ce.getSchedule().getTimeSlot());
+                        }
+                    }
+                    
+                    // Check for Membership
+                    Optional<Membership> membership = membershipRepository.findByTransactionId(transaction.getId());
+                    if (membership.isPresent()) {
+                        Membership m = membership.get();
+                        result.put("membershipType", m.getMembershipType());
+                        result.put("membershipActivatedDate", m.getMembershipActivatedDate());
+                        result.put("membershipExpiryDate", m.getMembershipExpiryDate());
+                    }
+                    
+                    return result;
+                })
+                .collect(Collectors.toList());
             
-            transaction.setPaymentStatus(newStatus);
+            return ResponseEntity.ok(transactionDetails);
             
-            // Only increment enrolled count when payment is completed
-            if (newStatus == PaymentStatus.COMPLETED && oldStatus != PaymentStatus.COMPLETED) {
-                // Set payment date
-                transaction.setPaymentDate(LocalDateTime.now());
-                
-                // For class enrollments, increment the enrolled count in the schedule
-                if (transaction.getSchedule() != null) {
-                    scheduleRepository.incrementEnrolledCount(transaction.getSchedule().getId());
-                }
-                
-                // Don't set membership dates on payment - only when admin checks code
-            }
-            
-            transactionRepository.save(transaction);
-            
-            return ResponseEntity.ok(transaction);
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body("Failed to update transaction: " + e.getMessage());
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Failed to fetch user transactions: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
 
-    @GetMapping("/check-active-enrollment")
-    public ResponseEntity<?> checkActiveEnrollment(
-            @RequestParam Long userId,
-            @RequestParam Long classId) {
+    @PutMapping("/{transactionId}/status")
+    public ResponseEntity<Transaction> updateTransactionStatus(
+            @PathVariable Long transactionId,
+            @RequestParam String status
+    ) {
         try {
-            Optional<Transaction> activeEnrollment = 
-                transactionRepository.findActiveEnrollmentByUserAndClass(userId, classId);
-            
-            if (activeEnrollment.isPresent()) {
-                Transaction transaction = activeEnrollment.get();
-                Map<String, Object> response = new HashMap<>();
-                response.put("hasActiveEnrollment", true);
-                response.put("className", transaction.getClassName());
-                response.put("scheduleDay", transaction.getScheduleDay());
-                response.put("scheduleTime", transaction.getScheduleTime());
-                response.put("scheduleDate", transaction.getScheduleDate());
-                response.put("paymentStatus", transaction.getPaymentStatus().toString());
-                response.put("transactionCode", transaction.getTransactionCode());
-                
-                // Include membership-related fields
-                response.put("membershipType", transaction.getMembershipType());
-                response.put("membershipActivatedDate", transaction.getMembershipActivatedDate());
-                response.put("membershipExpiryDate", transaction.getMembershipExpiryDate());
-                
-                return ResponseEntity.ok(response);
-            } else {
-                Map<String, Object> response = new HashMap<>();
-                response.put("hasActiveEnrollment", false);
-                return ResponseEntity.ok(response);
-            }
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Error checking enrollment: " + e.getMessage());
+            Transaction updatedTransaction = transactionService.updateTransactionStatus(transactionId, status);
+            return ResponseEntity.ok(updatedTransaction);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
         }
     }
 
     @GetMapping("/check-active-membership")
-    public ResponseEntity<?> checkActiveMembership(@RequestParam Long userId) {
-        try {
-            List<Transaction> activeMemberships = 
-                transactionRepository.findActiveMembershipsByUser(userId, LocalDateTime.now());
-            
-            if (!activeMemberships.isEmpty()) {
-                Transaction transaction = activeMemberships.get(0);
-                Map<String, Object> response = new HashMap<>();
-                response.put("hasActiveMembership", true);
-                response.put("membershipType", transaction.getMembershipType());
-                response.put("paymentStatus", transaction.getPaymentStatus().toString());
-                response.put("paymentDate", transaction.getPaymentDate());
-                response.put("membershipActivatedDate", transaction.getMembershipActivatedDate());
-                response.put("membershipExpiryDate", transaction.getMembershipExpiryDate());
-                response.put("transactionCode", transaction.getTransactionCode());
-                return ResponseEntity.ok(response);
-            } else {
-                Map<String, Object> response = new HashMap<>();
-                response.put("hasActiveMembership", false);
-                return ResponseEntity.ok(response);
-            }
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Error checking membership: " + e.getMessage());
+    public ResponseEntity<Map<String, Object>> checkActiveMembership(@RequestParam Long userId) {
+        Map<String, Object> result = new HashMap<>();
+
+        Optional<Membership> activeOpt = transactionService.getActiveMembership(userId);
+
+        if (activeOpt.isEmpty()) {
+            result.put("hasActiveMembership", false);
+        } else {
+            Membership m = activeOpt.get();
+            result.put("hasActiveMembership", true);
+            result.put("membershipType", m.getMembershipType());
+            result.put("membershipActivatedDate", m.getMembershipActivatedDate());
+            result.put("membershipExpiryDate", m.getMembershipExpiryDate());
+            result.put("transactionCode", m.getTransactionCode());
         }
+
+        return ResponseEntity.ok(result);
     }
 
-    @PutMapping("/{transactionId}/complete-session")
-    public ResponseEntity<?> completeSession(@PathVariable Long transactionId) {
-        try {
-            Transaction transaction = transactionRepository.findById(transactionId)
-                .orElseThrow(() -> new RuntimeException("Transaction not found"));
-            
-            transaction.setSessionCompleted(true);
-            transactionRepository.save(transaction);
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", "Session marked as completed");
-            response.put("transactionCode", transaction.getTransactionCode());
-            
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body("Failed to complete session: " + e.getMessage());
+    public Optional<Membership> getActiveMembership(Long userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("User ID cannot be null");
         }
+        LocalDateTime now = LocalDateTime.now();
+        List<Membership> activeMemberships = membershipRepository.findByUserIdAndExpiryDateAfterQuery(userId, now);
+        return activeMemberships.stream().findFirst();
     }
 
-    // ⭐ FIXED: Handle SESSION (1 day) vs MEMBERSHIP (1 month) differently
+    @GetMapping("/check-active-enrollment")
+    public ResponseEntity<Boolean> checkActiveEnrollment(
+            @RequestParam Long userId,
+            @RequestParam Long classId
+    ) {
+        boolean hasActive = transactionService.hasActiveEnrollment(userId, classId);
+        return ResponseEntity.ok(hasActive);
+    }
+
     @GetMapping("/check/{transactionCode}")
-    public ResponseEntity<Map<String, Object>> checkTransactionCode(@PathVariable String transactionCode) {
-        Map<String, Object> response = new HashMap<>();
-        
-        try {
-            Transaction transaction = transactionRepository
-                .findByTransactionCode(transactionCode)
-                .orElse(null);
-            
-            if (transaction == null) {
-                response.put("valid", false);
-                response.put("message", "Transaction code not found");
-                return ResponseEntity.ok(response);
-            }
-            
-            boolean isPaid = transaction.getPaymentStatus() == PaymentStatus.COMPLETED 
-                          || transaction.getPaymentStatus() == PaymentStatus.PAID;
-            
-            // ⭐ FIXED: Activate membership with correct duration based on type
-            if (isPaid && transaction.getMembershipType() != null && transaction.getMembershipActivatedDate() == null) {
-                LocalDateTime now = LocalDateTime.now();
-                LocalDateTime expiryDate;
-                
-                // ⭐ SESSION gets until end of day (11:59:59 PM), other memberships get 1 month
-                if ("SESSION".equals(transaction.getMembershipType())) {
-                    // Set expiry to 11:59:59 PM of the same day
-                    expiryDate = now.toLocalDate().atTime(23, 59, 59);
-                } else {
-                    expiryDate = now.plusMonths(1);
-                }
-                
-                // Activate the main membership transaction
-                transaction.setMembershipActivatedDate(now);
-                transaction.setMembershipExpiryDate(expiryDate);
-                transactionRepository.save(transaction);
-                
-                // ⭐ Only activate related class transactions for monthly memberships (not SESSION)
-                if (!"SESSION".equals(transaction.getMembershipType()) && transaction.getUser() != null) {
-                    List<Transaction> allUserTransactions = transactionRepository.findByUserId(transaction.getUser().getId());
-                    
-                    for (Transaction t : allUserTransactions) {
-                        // Find transactions that are membership classes (have className, membershipType, no scheduleDay)
-                        boolean isMembershipClass = t.getClassName() != null 
-                                                 && t.getMembershipType() != null 
-                                                 && t.getScheduleDay() == null
-                                                 && t.getMembershipActivatedDate() == null;
-                        
-                        // Check if it belongs to the same membership type
-                        if (isMembershipClass && t.getMembershipType().equals(transaction.getMembershipType())) {
-                            t.setMembershipActivatedDate(now);
-                            t.setMembershipExpiryDate(expiryDate);
-                        }
-                    }
-                    
-                    // Save all updated transactions
-                    transactionRepository.saveAll(allUserTransactions);
-                }
-            }
-            
-            response.put("valid", isPaid);
-            response.put("transaction", transaction);
-            response.put("userName", transaction.getUser().getUsername());
-            response.put("userEmail", transaction.getUserEmail());
-            response.put("paymentStatus", transaction.getPaymentStatus().toString());
-            response.put("totalAmount", transaction.getTotalAmount());
-            response.put("paymentDate", transaction.getPaymentDate());
-            response.put("sessionCompleted", transaction.getSessionCompleted());
-            
-            if (transaction.getClassName() != null) {
-                response.put("type", "CLASS");
-                response.put("className", transaction.getClassName());
-                response.put("scheduleDay", transaction.getScheduleDay());
-                response.put("scheduleTime", transaction.getScheduleTime());
-                response.put("scheduleDate", transaction.getScheduleDate());
-            } else if (transaction.getMembershipType() != null) {
-                response.put("type", "MEMBERSHIP");
-                response.put("membershipType", transaction.getMembershipType());
-                response.put("membershipActivatedDate", transaction.getMembershipActivatedDate());
-                response.put("membershipExpiryDate", transaction.getMembershipExpiryDate());
-            }
-            
-            if (isPaid) {
-                if (transaction.getSessionCompleted()) {
-                    response.put("message", "✅ Valid - Session completed");
-                } else if (transaction.getMembershipType() != null && transaction.getMembershipExpiryDate() != null) {
-                    if (LocalDateTime.now().isAfter(transaction.getMembershipExpiryDate())) {
-                        response.put("message", "⚠️ Membership expired");
-                    } else {
-                        response.put("message", "✅ Valid - Membership active");
-                    }
-                } else {
-                    response.put("message", "✅ Valid - Access granted");
-                }
-            } else {
-                response.put("message", "❌ Payment not completed");
-            }
-            
-            return ResponseEntity.ok(response);
-            
-        } catch (Exception e) {
-            response.put("valid", false);
-            response.put("message", "Error checking transaction: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+    public ResponseEntity<Map<String, Object>> checkTransactionCode(
+            @PathVariable String transactionCode
+    ) {
+        Map<String, Object> body = new HashMap<>();
+        LocalDateTime now = LocalDateTime.now();
+
+        if (transactionCode == null || transactionCode.trim().isEmpty()) {
+            body.put("valid", false);
+            body.put("message", "Transaction code is required.");
+            return ResponseEntity.ok(body); // 200 so frontend doesn't go to catch
         }
+
+        String code = transactionCode.trim().toUpperCase();
+
+        Optional<Transaction> txOpt = transactionService.getTransactionByCode(code);
+        if (txOpt.isEmpty()) {
+            body.put("valid", false);
+            body.put("message", "Transaction code not found.");
+            return ResponseEntity.ok(body);
+        }
+
+        Transaction tx = txOpt.get();
+
+        // Common fields
+        body.put("transaction", tx);
+        body.put("userName", tx.getUser().getUsername());
+        body.put("userEmail", tx.getUser().getEmail());
+        body.put("totalAmount", tx.getTotalAmount());
+        body.put("paymentStatus", tx.getPaymentStatus().name());
+        body.put("paymentDate", tx.getPaymentDate());
+
+        // Default message
+        body.put("valid", false);
+        body.put("message", "Invalid or expired access for this code.");
+
+        // Check related membership
+        Optional<Membership> membershipOpt = membershipRepository.findByTransactionId(tx.getId());
+        if (membershipOpt.isPresent()) {
+            Membership m = membershipOpt.get();
+            body.put("type", "MEMBERSHIP");
+            body.put("membershipType", m.getMembershipType());
+
+            boolean paid = tx.getPaymentStatus() == PaymentStatus.COMPLETED;
+            boolean activated = m.getMembershipActivatedDate() != null;
+            boolean notExpired = m.getMembershipExpiryDate() != null
+                    && m.getMembershipExpiryDate().isAfter(now);
+
+            // ✅ 1) Payment is done, but membership not yet activated → ACTIVATE NOW
+            if (paid && !activated) {
+                LocalDateTime activatedNow = now;
+                m.setMembershipActivatedDate(activatedNow);
+
+                // Set expiry based on plan
+                String type = m.getMembershipType() != null
+                        ? m.getMembershipType().toUpperCase()
+                        : "";
+
+                switch (type) {
+                    case "SESSION":
+                        // 1-day pass
+                        m.setMembershipExpiryDate(activatedNow.plusDays(1));
+                        break;
+                    case "SILVER":
+                    case "GOLD":
+                    case "PLATINUM":
+                    default:
+                        // default: 1 month
+                        m.setMembershipExpiryDate(activatedNow.plusMonths(1));
+                        break;
+                }
+
+                membershipRepository.save(m);
+
+                body.put("membershipActivatedDate", m.getMembershipActivatedDate());
+                body.put("membershipExpiryDate", m.getMembershipExpiryDate());
+                body.put("valid", true);
+                body.put("message", "Membership activated and access granted.");
+                return ResponseEntity.ok(body);
+            }
+
+            // ✅ 2) Already activated and not expired → still valid
+            if (paid && activated && notExpired) {
+                body.put("membershipActivatedDate", m.getMembershipActivatedDate());
+                body.put("membershipExpiryDate", m.getMembershipExpiryDate());
+                body.put("valid", true);
+                body.put("message", "Valid active membership.");
+                return ResponseEntity.ok(body);
+            }
+
+            // ❌ 3) Other cases (unpaid / expired)
+            body.put("membershipActivatedDate", m.getMembershipActivatedDate());
+            body.put("membershipExpiryDate", m.getMembershipExpiryDate());
+
+            if (!paid) {
+                body.put("message", "Payment not completed for this membership.");
+            } else if (!notExpired) {
+                body.put("message", "Membership has expired.");
+            } else {
+                body.put("message", "Membership is not valid.");
+            }
+
+            return ResponseEntity.ok(body);
+        }
+
+        // Check related class enrollment
+        Optional<ClassEnrollment> enrollmentOpt = classEnrollmentRepository.findByTransactionId(tx.getId());
+        if (enrollmentOpt.isPresent()) {
+            ClassEnrollment ce = enrollmentOpt.get();
+            body.put("type", "CLASS");
+            body.put("className", ce.getClassEntity() != null ? ce.getClassEntity().getName() : null);
+
+            if (ce.getSchedule() != null) {
+                body.put("scheduleDay", ce.getSchedule().getDay());
+                body.put("scheduleTime", ce.getSchedule().getTimeSlot());
+            }
+
+            boolean paid = tx.getPaymentStatus() == PaymentStatus.COMPLETED;
+            boolean notCompleted = !Boolean.TRUE.equals(ce.getSessionCompleted());
+
+            if (paid && notCompleted) {
+                body.put("valid", true);
+                body.put("message", "Valid class enrollment.");
+            } else if (!paid) {
+                body.put("message", "Payment not completed for this class.");
+            } else {
+                body.put("message", "Class session already completed.");
+            }
+
+            return ResponseEntity.ok(body);
+        }
+
+        // No membership or class linked
+        body.put("type", "UNKNOWN");
+        body.put("message", "Transaction exists but is not linked to a membership or class.");
+        return ResponseEntity.ok(body);
     }
 
-    @GetMapping("/user/{userId}")
-    public ResponseEntity<List<Transaction>> getUserTransactions(@PathVariable Long userId) {
+    // NEW: Get transaction with full details by ID
+    @GetMapping("/{transactionId}/details")
+    public ResponseEntity<?> getTransactionWithDetails(@PathVariable Long transactionId) {
         try {
-            List<Transaction> transactions = transactionRepository.findByUserId(userId);
-            return ResponseEntity.ok(transactions);
+            Optional<Transaction> transactionOpt = transactionService.getTransactionByCode(transactionId.toString());
+            if (transactionOpt.isEmpty()) {
+                Map<String, String> errorResponse = new HashMap<>();
+                errorResponse.put("message", "Transaction not found");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+            }
+            
+            Transaction transaction = transactionOpt.get();
+            Map<String, Object> result = new HashMap<>();
+            
+            // Basic transaction data
+            result.put("id", transaction.getId());
+            result.put("transactionCode", transaction.getTransactionCode());
+            result.put("totalAmount", transaction.getTotalAmount());
+            result.put("processingFee", transaction.getProcessingFee());
+            result.put("paymentMethod", transaction.getPaymentMethod());
+            result.put("paymentStatus", transaction.getPaymentStatus());
+            result.put("paymentDate", transaction.getPaymentDate());
+            result.put("user", transaction.getUser());
+            
+            // Check for ClassEnrollment
+            Optional<ClassEnrollment> enrollment = classEnrollmentRepository.findByTransactionId(transaction.getId());
+            if (enrollment.isPresent()) {
+                ClassEnrollment ce = enrollment.get();
+                Map<String, Object> enrollmentData = new HashMap<>();
+                enrollmentData.put("enrollmentId", ce.getId());
+                enrollmentData.put("className", ce.getClassEntity() != null ? ce.getClassEntity().getName() : null);
+                enrollmentData.put("classId", ce.getClassEntity() != null ? ce.getClassEntity().getId() : null);
+                enrollmentData.put("sessionCompleted", ce.getSessionCompleted());
+                
+                if (ce.getSchedule() != null) {
+                    enrollmentData.put("scheduleId", ce.getSchedule().getId());
+                    enrollmentData.put("scheduleDay", ce.getSchedule().getDay());
+                    enrollmentData.put("scheduleDate", ce.getSchedule().getDate());
+                    enrollmentData.put("scheduleTime", ce.getSchedule().getTimeSlot());
+                }
+                
+                result.put("classEnrollment", enrollmentData);
+            }
+            
+            // Check for Membership
+            Optional<Membership> membership = membershipRepository.findByTransactionId(transaction.getId());
+            if (membership.isPresent()) {
+                Membership m = membership.get();
+                Map<String, Object> membershipData = new HashMap<>();
+                membershipData.put("membershipId", m.getId());
+                membershipData.put("membershipType", m.getMembershipType());
+                membershipData.put("membershipActivatedDate", m.getMembershipActivatedDate());
+                membershipData.put("membershipExpiryDate", m.getMembershipExpiryDate());
+                
+                result.put("membership", membershipData);
+            }
+            
+            return ResponseEntity.ok(result);
+            
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Failed to fetch transaction details: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
 }
