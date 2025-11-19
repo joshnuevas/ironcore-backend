@@ -29,18 +29,6 @@ public class ClassEnrollment {
 
     private Boolean sessionCompleted = false;
 
-    // Keep only these payment fields
-    @Column(name = "payment_method")
-    private String paymentMethod;
-    
-    @Column(name = "total_amount")
-    private Double totalAmount;
-    
-    @Column(name = "transaction_code")
-    private String transactionCode;
-
-    // REMOVED: payment_status, rating, feedback, attended_at
-
     // No-arg constructor
     public ClassEnrollment() {
     }
@@ -52,18 +40,27 @@ public class ClassEnrollment {
         this.schedule = schedule;
         this.transaction = transaction;
         this.sessionCompleted = false;
-        
-        // Copy values from transaction
-        if (transaction != null) {
-            this.paymentMethod = transaction.getPaymentMethod();
-            this.totalAmount = transaction.getTotalAmount();
-            this.transactionCode = transaction.getTransactionCode();
-        }
+        // ⭐ No need to copy payment fields anymore
     }
 
     // Helper methods - check payment status through transaction relationship
     public boolean isPaid() {
         return transaction != null && PaymentStatus.COMPLETED.equals(transaction.getPaymentStatus());
+    }
+
+    // ⭐ Helper method to get payment method from transaction
+    public String getPaymentMethod() {
+        return transaction != null ? transaction.getPaymentMethod() : null;
+    }
+
+    // ⭐ Helper method to get total amount from transaction
+    public Double getTotalAmount() {
+        return transaction != null ? transaction.getTotalAmount() : null;
+    }
+
+    // ⭐ Helper method to get transaction code from transaction
+    public String getTransactionCode() {
+        return transaction != null ? transaction.getTransactionCode() : null;
     }
 
     // Getters and setters
@@ -82,25 +79,9 @@ public class ClassEnrollment {
     public Transaction getTransaction() { return transaction; }
     public void setTransaction(Transaction transaction) { 
         this.transaction = transaction;
-        // Update the copied fields
-        if (transaction != null) {
-            this.paymentMethod = transaction.getPaymentMethod();
-            this.totalAmount = transaction.getTotalAmount();
-            this.transactionCode = transaction.getTransactionCode();
-        }
+        // ⭐ No need to copy fields anymore
     }
 
     public Boolean getSessionCompleted() { return sessionCompleted; }
     public void setSessionCompleted(Boolean sessionCompleted) { this.sessionCompleted = sessionCompleted; }
-
-    public String getPaymentMethod() { return paymentMethod; }
-    public void setPaymentMethod(String paymentMethod) { this.paymentMethod = paymentMethod; }
-
-    public Double getTotalAmount() { return totalAmount; }
-    public void setTotalAmount(Double totalAmount) { this.totalAmount = totalAmount; }
-
-    public String getTransactionCode() { return transactionCode; }
-    public void setTransactionCode(String transactionCode) { this.transactionCode = transactionCode; }
-
-    // REMOVED: getPaymentStatus(), setPaymentStatus(), getRating(), setRating(), getFeedback(), setFeedback(), getAttendedAt(), setAttendedAt()
 }

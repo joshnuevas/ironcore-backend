@@ -6,6 +6,7 @@ import com.ironcore.ironcorebackend.service.MembershipService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -60,4 +61,39 @@ public class MembershipController {
         return ResponseEntity.ok(membershipService.getMembershipsByPaymentStatus(status));
     }
 
+    @PutMapping("/approve/{transactionCode}")
+    public ResponseEntity<?> approveMembership(@PathVariable String transactionCode) {
+        Optional<Membership> membershipOpt = membershipService.getMembershipByTransactionCode(transactionCode);
+
+        if (membershipOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Membership m = membershipOpt.get();
+
+        if (m.getMembershipActivatedDate() != null) {
+            return ResponseEntity.badRequest().body("Membership already activated.");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+
+        m.setMembershipActivatedDate(now);
+
+        // Expiry based on membershipType
+        switch (m.getMembershipType().toUpperCase()) {
+            case "SILVER":
+            case "GOLD":
+            case "PLATINUM":
+                m.setMembershipExpiryDate(now.plusMonths(1));
+                break;
+            case "SESSION":
+                m.setMembershipExpiryDate(now.plusDays(1));
+                break;
+            default:
+                m.setMembershipExpiryDate(now.plusMonths(1));
+        }
+
+        Membership updated = membershipService.saveMembership(m);
+        return ResponseEntity.ok(updated);
+    }
 }

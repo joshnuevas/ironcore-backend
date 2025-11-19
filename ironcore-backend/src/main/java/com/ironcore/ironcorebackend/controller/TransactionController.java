@@ -2,6 +2,7 @@ package com.ironcore.ironcorebackend.controller;
 
 import com.ironcore.ironcorebackend.entity.*;
 import com.ironcore.ironcorebackend.dto.TransactionRequest;
+import com.ironcore.ironcorebackend.service.MembershipService;
 import com.ironcore.ironcorebackend.service.TransactionService;
 import com.ironcore.ironcorebackend.repository.ClassEnrollmentRepository;
 import com.ironcore.ironcorebackend.repository.MembershipRepository;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -23,13 +25,16 @@ public class TransactionController {
     private final TransactionService transactionService;
     private final ClassEnrollmentRepository classEnrollmentRepository;
     private final MembershipRepository membershipRepository;
+    private final MembershipService membershipService;
 
     public TransactionController(TransactionService transactionService,
                                 ClassEnrollmentRepository classEnrollmentRepository,
-                                MembershipRepository membershipRepository) {
+                                MembershipRepository membershipRepository,
+                                MembershipService membershipService) {
         this.transactionService = transactionService;
         this.classEnrollmentRepository = classEnrollmentRepository;
         this.membershipRepository = membershipRepository;
+        this.membershipService = membershipService; 
     }
 
     @PostMapping
@@ -122,10 +127,33 @@ public class TransactionController {
         }
     }
 
-    @GetMapping("/check-active-membership/{userId}")
-    public ResponseEntity<Boolean> checkActiveMembership(@PathVariable Long userId) {
-        boolean hasActive = transactionService.hasActiveMembership(userId);
-        return ResponseEntity.ok(hasActive);
+    @GetMapping("/check-active-membership")
+    public ResponseEntity<Map<String, Object>> checkActiveMembership(@RequestParam Long userId) {
+        Map<String, Object> result = new HashMap<>();
+
+        Optional<Membership> activeOpt = transactionService.getActiveMembership(userId);
+
+        if (activeOpt.isEmpty()) {
+            result.put("hasActiveMembership", false);
+        } else {
+            Membership m = activeOpt.get();
+            result.put("hasActiveMembership", true);
+            result.put("membershipType", m.getMembershipType());
+            result.put("membershipActivatedDate", m.getMembershipActivatedDate());
+            result.put("membershipExpiryDate", m.getMembershipExpiryDate());
+            result.put("transactionCode", m.getTransactionCode());
+        }
+
+        return ResponseEntity.ok(result);
+    }
+
+    public Optional<Membership> getActiveMembership(Long userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("User ID cannot be null");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        List<Membership> activeMemberships = membershipRepository.findByUserIdAndExpiryDateAfterQuery(userId, now);
+        return activeMemberships.stream().findFirst();
     }
 
     @GetMapping("/check-active-enrollment")
@@ -135,6 +163,144 @@ public class TransactionController {
     ) {
         boolean hasActive = transactionService.hasActiveEnrollment(userId, classId);
         return ResponseEntity.ok(hasActive);
+    }
+
+    @GetMapping("/check/{transactionCode}")
+    public ResponseEntity<Map<String, Object>> checkTransactionCode(
+            @PathVariable String transactionCode
+    ) {
+        Map<String, Object> body = new HashMap<>();
+        LocalDateTime now = LocalDateTime.now();
+
+        if (transactionCode == null || transactionCode.trim().isEmpty()) {
+            body.put("valid", false);
+            body.put("message", "Transaction code is required.");
+            return ResponseEntity.ok(body); // 200 so frontend doesn't go to catch
+        }
+
+        String code = transactionCode.trim().toUpperCase();
+
+        Optional<Transaction> txOpt = transactionService.getTransactionByCode(code);
+        if (txOpt.isEmpty()) {
+            body.put("valid", false);
+            body.put("message", "Transaction code not found.");
+            return ResponseEntity.ok(body);
+        }
+
+        Transaction tx = txOpt.get();
+
+        // Common fields
+        body.put("transaction", tx);
+        body.put("userName", tx.getUser().getUsername());
+        body.put("userEmail", tx.getUser().getEmail());
+        body.put("totalAmount", tx.getTotalAmount());
+        body.put("paymentStatus", tx.getPaymentStatus().name());
+        body.put("paymentDate", tx.getPaymentDate());
+
+        // Default message
+        body.put("valid", false);
+        body.put("message", "Invalid or expired access for this code.");
+
+        // Check related membership
+        Optional<Membership> membershipOpt = membershipRepository.findByTransactionId(tx.getId());
+        if (membershipOpt.isPresent()) {
+            Membership m = membershipOpt.get();
+            body.put("type", "MEMBERSHIP");
+            body.put("membershipType", m.getMembershipType());
+
+            boolean paid = tx.getPaymentStatus() == PaymentStatus.COMPLETED;
+            boolean activated = m.getMembershipActivatedDate() != null;
+            boolean notExpired = m.getMembershipExpiryDate() != null
+                    && m.getMembershipExpiryDate().isAfter(now);
+
+            // ✅ 1) Payment is done, but membership not yet activated → ACTIVATE NOW
+            if (paid && !activated) {
+                LocalDateTime activatedNow = now;
+                m.setMembershipActivatedDate(activatedNow);
+
+                // Set expiry based on plan
+                String type = m.getMembershipType() != null
+                        ? m.getMembershipType().toUpperCase()
+                        : "";
+
+                switch (type) {
+                    case "SESSION":
+                        // 1-day pass
+                        m.setMembershipExpiryDate(activatedNow.plusDays(1));
+                        break;
+                    case "SILVER":
+                    case "GOLD":
+                    case "PLATINUM":
+                    default:
+                        // default: 1 month
+                        m.setMembershipExpiryDate(activatedNow.plusMonths(1));
+                        break;
+                }
+
+                membershipRepository.save(m);
+
+                body.put("membershipActivatedDate", m.getMembershipActivatedDate());
+                body.put("membershipExpiryDate", m.getMembershipExpiryDate());
+                body.put("valid", true);
+                body.put("message", "Membership activated and access granted.");
+                return ResponseEntity.ok(body);
+            }
+
+            // ✅ 2) Already activated and not expired → still valid
+            if (paid && activated && notExpired) {
+                body.put("membershipActivatedDate", m.getMembershipActivatedDate());
+                body.put("membershipExpiryDate", m.getMembershipExpiryDate());
+                body.put("valid", true);
+                body.put("message", "Valid active membership.");
+                return ResponseEntity.ok(body);
+            }
+
+            // ❌ 3) Other cases (unpaid / expired)
+            body.put("membershipActivatedDate", m.getMembershipActivatedDate());
+            body.put("membershipExpiryDate", m.getMembershipExpiryDate());
+
+            if (!paid) {
+                body.put("message", "Payment not completed for this membership.");
+            } else if (!notExpired) {
+                body.put("message", "Membership has expired.");
+            } else {
+                body.put("message", "Membership is not valid.");
+            }
+
+            return ResponseEntity.ok(body);
+        }
+
+        // Check related class enrollment
+        Optional<ClassEnrollment> enrollmentOpt = classEnrollmentRepository.findByTransactionId(tx.getId());
+        if (enrollmentOpt.isPresent()) {
+            ClassEnrollment ce = enrollmentOpt.get();
+            body.put("type", "CLASS");
+            body.put("className", ce.getClassEntity() != null ? ce.getClassEntity().getName() : null);
+
+            if (ce.getSchedule() != null) {
+                body.put("scheduleDay", ce.getSchedule().getDay());
+                body.put("scheduleTime", ce.getSchedule().getTimeSlot());
+            }
+
+            boolean paid = tx.getPaymentStatus() == PaymentStatus.COMPLETED;
+            boolean notCompleted = !Boolean.TRUE.equals(ce.getSessionCompleted());
+
+            if (paid && notCompleted) {
+                body.put("valid", true);
+                body.put("message", "Valid class enrollment.");
+            } else if (!paid) {
+                body.put("message", "Payment not completed for this class.");
+            } else {
+                body.put("message", "Class session already completed.");
+            }
+
+            return ResponseEntity.ok(body);
+        }
+
+        // No membership or class linked
+        body.put("type", "UNKNOWN");
+        body.put("message", "Transaction exists but is not linked to a membership or class.");
+        return ResponseEntity.ok(body);
     }
 
     // NEW: Get transaction with full details by ID

@@ -15,7 +15,9 @@ import java.util.Optional;
 @Repository
 public interface ClassEnrollmentRepository extends JpaRepository<ClassEnrollment, Long> {
 
-    Optional<ClassEnrollment> findByTransactionCode(String transactionCode);
+    // ⭐ FIXED: Use transaction relationship instead of direct field
+    Optional<ClassEnrollment> findByTransaction_TransactionCode(String transactionCode);
+    
     List<ClassEnrollment> findByUserId(Long userId);
     Optional<ClassEnrollment> findByTransactionId(Long transactionId);
     List<ClassEnrollment> findByUserIdAndClassEntityId(Long userId, Long classEntityId);

@@ -1,7 +1,6 @@
 package com.ironcore.ironcorebackend.service;
 
 import com.ironcore.ironcorebackend.entity.ClassEnrollment;
-import com.ironcore.ironcorebackend.entity.PaymentStatus;
 import com.ironcore.ironcorebackend.repository.ClassEnrollmentRepository;
 import org.springframework.stereotype.Service;
 
@@ -29,9 +28,9 @@ public class ClassEnrollmentService {
         return classEnrollmentRepository.findById(id);
     }
 
-    // UPDATED: Now uses the custom query
+    // UPDATED: Use the correct repository method name
     public Optional<ClassEnrollment> getEnrollmentByTransactionCode(String code) {
-        return classEnrollmentRepository.findByTransactionCode(code);
+        return classEnrollmentRepository.findByTransaction_TransactionCode(code);
     }
 
     public List<ClassEnrollment> getEnrollmentsByUser(Long userId) {
@@ -41,13 +40,13 @@ public class ClassEnrollmentService {
     public void completeSession(Long enrollmentId) {
         classEnrollmentRepository.markSessionCompleted(enrollmentId);
     }
-    
-    // NEW: Get enrollments by schedule
+
+    // Get enrollments by schedule
     public List<ClassEnrollment> getEnrollmentsBySchedule(Long scheduleId) {
         return classEnrollmentRepository.findByScheduleId(scheduleId);
     }
-    
-    // NEW: Get paid enrollments
+
+    // Get paid enrollments
     public List<ClassEnrollment> getPaidEnrollments() {
         return classEnrollmentRepository.findPaidEnrollments();
     }

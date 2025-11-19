@@ -241,35 +241,23 @@ public class TransactionService {
         return result.toString();
     }
 
-    // Create membership from transaction
     private void createMembershipFromTransaction(Transaction transaction, TransactionRequest request) {
         try {
-            logger.info("=== CREATING MEMBERSHIP ===");
-            
+            logger.info("=== CREATING MEMBERSHIP (PENDING) ===");
+
             Membership membership = new Membership();
             membership.setUser(transaction.getUser());
             membership.setTransaction(transaction);
             membership.setMembershipType(request.getMembershipType());
-            
-            // Set membership dates
-            LocalDateTime activatedDate = request.getMembershipActivatedDate() != null 
-                    ? request.getMembershipActivatedDate() 
-                    : LocalDateTime.now();
-            LocalDateTime expiryDate = request.getMembershipExpiryDate() != null 
-                    ? request.getMembershipExpiryDate() 
-                    : activatedDate.plusMonths(1);
-                    
-            membership.setMembershipActivatedDate(activatedDate);
-            membership.setMembershipExpiryDate(expiryDate);
-            
-            logger.info("Membership Details - Type: {}, Activated: {}, Expiry: {}, User: {}", 
-                       membership.getMembershipType(), membership.getMembershipActivatedDate(), 
-                       membership.getMembershipExpiryDate(), membership.getUser().getUsername());
-            
+
+            // ❗ Pending: no dates yet
+            membership.setMembershipActivatedDate(null);
+            membership.setMembershipExpiryDate(null);
+
+            membership.setTransactionCode(transaction.getTransactionCode());
+
             Membership savedMembership = membershipRepository.save(membership);
-            logger.info("✅ Membership saved with ID: {}", savedMembership.getId());
-            logger.info("=== MEMBERSHIP CREATION COMPLETE ===");
-            
+            logger.info("✅ Pending membership saved with ID: {}", savedMembership.getId());
         } catch (Exception e) {
             logger.error("❌ Error creating membership for transaction: {}", transaction.getId(), e);
             throw new RuntimeException("Failed to create membership: " + e.getMessage(), e);
@@ -387,26 +375,23 @@ public class TransactionService {
     // Create membership from stored context
     private void createMembershipFromStoredContext(Transaction transaction, TransactionContext context) {
         try {
-            logger.info("🔄 Creating membership from stored context...");
+            logger.info("🔄 Creating membership from stored context (PENDING)...");
             
             Membership membership = new Membership();
             membership.setUser(transaction.getUser());
             membership.setTransaction(transaction);
             membership.setMembershipType(context.getMembershipType());
-            
-            LocalDateTime activatedDate = LocalDateTime.now();
-            LocalDateTime expiryDate = activatedDate.plusMonths(1);
-            
-            membership.setMembershipActivatedDate(activatedDate);
-            membership.setMembershipExpiryDate(expiryDate);
-            
+
+            // ❗ Pending
+            membership.setMembershipActivatedDate(null);
+            membership.setMembershipExpiryDate(null);
+            membership.setTransactionCode(transaction.getTransactionCode());
+
             Membership savedMembership = membershipRepository.save(membership);
-            logger.info("✅ Membership created with ID: {}, Type: {}", 
-                       savedMembership.getId(), savedMembership.getMembershipType());
-            
-            // Clean up stored context
+            logger.info("✅ Pending membership created with ID: {}, Type: {}",
+                    savedMembership.getId(), savedMembership.getMembershipType());
+
             transactionContexts.remove(transaction.getId());
-            
         } catch (Exception e) {
             logger.error("❌ Error creating membership from context for transaction: {}", transaction.getId(), e);
             throw new RuntimeException("Failed to create membership from context: " + e.getMessage(), e);
@@ -498,26 +483,24 @@ public class TransactionService {
     // Create membership for completed transaction (fallback)
     private void createMembershipForCompletedTransaction(Transaction transaction) {
         try {
-            logger.info("🔄 Creating membership for completed transaction...");
+            logger.info("🔄 Creating membership for completed transaction (PENDING)...");
             
             Membership membership = new Membership();
             membership.setUser(transaction.getUser());
             membership.setTransaction(transaction);
-            
-            // Determine membership type from transaction code
+
             String membershipType = determineMembershipType(transaction);
             membership.setMembershipType(membershipType);
-            
-            LocalDateTime activatedDate = LocalDateTime.now();
-            LocalDateTime expiryDate = activatedDate.plusMonths(1);
-            
-            membership.setMembershipActivatedDate(activatedDate);
-            membership.setMembershipExpiryDate(expiryDate);
-            
+
+            // ❗ Pending
+            membership.setMembershipActivatedDate(null);
+            membership.setMembershipExpiryDate(null);
+            membership.setTransactionCode(transaction.getTransactionCode());
+
             Membership savedMembership = membershipRepository.save(membership);
-            logger.info("✅ Membership created with ID: {}, Type: {}", 
-                       savedMembership.getId(), savedMembership.getMembershipType());
-            
+            logger.info("✅ Pending membership created with ID: {}, Type: {}",
+                    savedMembership.getId(), savedMembership.getMembershipType());
+
         } catch (Exception e) {
             logger.error("❌ Error creating membership for transaction: {}", transaction.getId(), e);
             throw new RuntimeException("Failed to create membership: " + e.getMessage(), e);
