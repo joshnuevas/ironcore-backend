@@ -33,6 +33,10 @@ public class TransactionService {
     private final ScheduleRepository scheduleRepository;
     private final MembershipRepository membershipRepository;
     private final ClassEnrollmentRepository classEnrollmentRepository;
+    
+    // Add the missing service dependencies
+    private final ClassEnrollmentService classEnrollmentService;
+    private final MembershipService membershipService;
 
     // Thread-safe in-memory storage for transaction context
     private final Map<Long, TransactionContext> transactionContexts;
@@ -42,64 +46,122 @@ public class TransactionService {
                               ClassRepository classRepository,
                               ScheduleRepository scheduleRepository,
                               MembershipRepository membershipRepository,
-                              ClassEnrollmentRepository classEnrollmentRepository) {
+                              ClassEnrollmentRepository classEnrollmentRepository,
+                              ClassEnrollmentService classEnrollmentService,
+                              MembershipService membershipService) {
         this.transactionRepository = transactionRepository;
         this.userRepository = userRepository;
         this.classRepository = classRepository;
         this.scheduleRepository = scheduleRepository;
         this.membershipRepository = membershipRepository;
         this.classEnrollmentRepository = classEnrollmentRepository;
+        this.classEnrollmentService = classEnrollmentService;
+        this.membershipService = membershipService;
         this.transactionContexts = new ConcurrentHashMap<>();
     }
 
     // Create a new transaction and related domain records
     public Transaction createTransaction(TransactionRequest request) {
-        logger.info("=== CREATE TRANSACTION STARTED ===");
-        logger.info("Request - UserId: {}, MembershipType: {}, ScheduleId: {}, PaymentStatus: {}", 
-                   request.getUserId(), request.getMembershipType(), request.getScheduleId(), request.getPaymentStatus());
-        
-        logger.info("=== RECEIVED REQUEST ===");
-        logger.info("ScheduleId: {}, ClassId: {}", request.getScheduleId(), request.getClassId());
-        logger.info("PaymentStatus: {}", request.getPaymentStatus());
+    User user = userRepository.findById(request.getUserId())
+            .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // Validate request
-        validateTransactionRequest(request);
-        
-        User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new RuntimeException("User not found with ID: " + request.getUserId()));
+    Transaction transaction = new Transaction();
+    transaction.setUser(user);
+    
+    // Determine transaction type and generate appropriate code
+    String typeCode;
+    if (request.getClassId() != null && request.getScheduleId() != null) {
+        transaction.setTransactionType(TransactionType.CLASS_ENROLLMENT);
+        typeCode = "CLASS";
+    } else if (request.getMembershipType() != null) {
+        transaction.setTransactionType(TransactionType.MEMBERSHIP);
+        typeCode = request.getMembershipType();
+    } else {
+        throw new RuntimeException("Invalid transaction: must specify either class/schedule or membership");
+    }
+    
+    // Generate transaction code with appropriate type
+    transaction.setTransactionCode(generateTransactionCode(typeCode));
+    transaction.setTotalAmount(request.getTotalAmount());
+    transaction.setProcessingFee(request.getProcessingFee());
+    transaction.setPaymentMethod(request.getPaymentMethod());
+    transaction.setPaymentStatus(PaymentStatus.valueOf(request.getPaymentStatus()));
+    transaction.setPaymentDate(LocalDateTime.now());
 
-        Transaction transaction = createTransactionEntity(request, user);
-        logger.info("Payment Status: {}", transaction.getPaymentStatus());
+    Transaction savedTransaction = transactionRepository.save(transaction);
 
-        // Generate transaction code based on type
-        String transactionCode = generateTransactionCodeBasedOnRequest(request);
-        transaction.setTransactionCode(transactionCode);
-        
-        // Create transaction context
-        TransactionContext context = createTransactionContext(request);
-        
-        // Handle transaction type and store context if payment is not completed
-        if (request.getMembershipType() != null) {
-            handleMembershipTransaction(transaction, request, context);
-        } else if (request.getScheduleId() != null) {
-            handleClassTransaction(transaction, request, context);
-        } else {
-            handleGenericTransaction(transaction);
+    // Handle class enrollment
+    if (request.getClassId() != null && request.getScheduleId() != null) {
+        ClassEntity classEntity = classRepository.findById(request.getClassId())
+                .orElseThrow(() -> new RuntimeException("Class not found"));
+
+        Schedule schedule = scheduleRepository.findById(request.getScheduleId())
+                .orElseThrow(() -> new RuntimeException("Schedule not found"));
+
+        // Check for duplicate enrollment
+        boolean hasActive = hasActiveEnrollment(user.getId(), classEntity.getId());
+        if (hasActive) {
+            throw new RuntimeException("ACTIVE_ENROLLMENT_EXISTS");
         }
 
-        // Save transaction FIRST to get an ID
-        Transaction savedTransaction = transactionRepository.save(transaction);
-        logger.info("Transaction saved with ID: {}", savedTransaction.getId());
-        
-        // Store context using the saved transaction ID
-        if (shouldStoreContext(transaction.getPaymentStatus())) {
-            storeTransactionContext(savedTransaction.getId(), context);
-        }
-        
-        logger.info("=== CREATE TRANSACTION COMPLETED ===");
-        return savedTransaction;
+        ClassEnrollment enrollment = new ClassEnrollment(user, classEntity, schedule, savedTransaction);
+        enrollment.setSessionCompleted(false);
+        classEnrollmentService.saveEnrollment(enrollment);
     }
 
+    // Handle membership
+    if (request.getMembershipType() != null) {
+        // Check for active membership
+        Optional<Membership> activeOpt = getActiveMembership(user.getId());
+        if (activeOpt.isPresent()) {
+            throw new RuntimeException("ACTIVE_MEMBERSHIP_EXISTS");
+        }
+
+        Membership membership = new Membership();
+        membership.setUser(user);
+        membership.setTransaction(savedTransaction);
+        membership.setMembershipType(request.getMembershipType());
+        membership.setTransactionCode(savedTransaction.getTransactionCode());
+        membershipService.saveMembership(membership);
+    }
+
+    return savedTransaction;
+}
+
+    // This method is for frontend calls (no parameters)
+        public String generateTransactionCode() {
+            // You can either:
+            // Option 1: Return a generic code
+            return generateTransactionCode("TRAN");
+            
+            // Option 2: Or if you want it to be more specific based on common use case
+            // return generateTransactionCode("MEM"); // for membership
+        }
+
+        // Keep your existing method for internal use
+        private String generateTransactionCode(String typeCode) {
+            try {
+                // Always use first 3 letters, uppercase
+                String type = typeCode.substring(0, 3).toUpperCase();
+                return TRANSACTION_PREFIX + "-" + type + "-" + generateRandomAlphanumeric(5);
+            } catch (Exception e) {
+                logger.warn("Error generating transaction code for type: {}, using fallback", typeCode, e);
+                return TRANSACTION_PREFIX + "-GEN-" + generateRandomAlphanumeric(5);
+            }
+        }
+
+    private String generateRandomAlphanumeric(int length) {
+        String characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        Random random = new Random();
+        StringBuilder result = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            result.append(characters.charAt(random.nextInt(characters.length())));
+        }
+        return result.toString();
+    }
+
+    // Remove or comment out unused methods to clean up the code
+    /*
     private String generateTransactionCodeBasedOnRequest(TransactionRequest request) {
         if (request.getMembershipType() != null) {
             return generateTransactionCode(request.getMembershipType());
@@ -200,7 +262,6 @@ public class TransactionService {
         logger.info("Generated Transaction Code: {}", transaction.getTransactionCode());
     }
 
-    // Store transaction context with null safety (after we have an ID)
     private void storeTransactionContext(Long transactionId, TransactionContext context) {
         if (transactionId == null) {
             throw new IllegalArgumentException("Transaction ID cannot be null when storing context");
@@ -217,29 +278,7 @@ public class TransactionService {
         logger.info("💾 Storing context - ScheduleId: {}, ClassId: {}", 
         context.getScheduleId(), context.getClassId());           
     }
-
-    // Generate a unique transaction code
-    private String generateTransactionCode(String typeCode) {
-        try {
-            String type = (typeCode != null && typeCode.length() >= 3)
-                    ? typeCode.substring(0, 3).toUpperCase()
-                    : "GEN";
-            return TRANSACTION_PREFIX + "-" + type + "-" + generateRandomAlphanumeric(5);
-        } catch (Exception e) {
-            logger.warn("Error generating transaction code, using fallback", e);
-            return TRANSACTION_PREFIX + "-GEN-" + generateRandomAlphanumeric(5);
-        }
-    }
-
-    private String generateRandomAlphanumeric(int length) {
-        String characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        Random random = new Random();
-        StringBuilder result = new StringBuilder(length);
-        for (int i = 0; i < length; i++) {
-            result.append(characters.charAt(random.nextInt(characters.length())));
-        }
-        return result.toString();
-    }
+    */
 
     private void createMembershipFromTransaction(Transaction transaction, TransactionRequest request) {
         try {

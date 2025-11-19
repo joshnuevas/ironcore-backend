@@ -57,62 +57,61 @@ public class TransactionController {
 
     // UPDATED: Returns combined data for frontend
     @GetMapping("/user/{userId}")
-    public ResponseEntity<?> getTransactionsByUser(@PathVariable Long userId) {
-        try {
-            List<Transaction> transactions = transactionService.getTransactionsByUser(userId);
-            
-            // Transform transactions to include class and membership data
-            List<Map<String, Object>> transactionDetails = transactions.stream()
-                .map(transaction -> {
-                    Map<String, Object> result = new HashMap<>();
+public ResponseEntity<?> getTransactionsByUser(@PathVariable Long userId) {
+    try {
+        List<Transaction> transactions = transactionService.getTransactionsByUser(userId);
+        
+        List<Map<String, Object>> transactionDetails = transactions.stream()
+            .map(transaction -> {
+                Map<String, Object> result = new HashMap<>();
+                
+                // Basic transaction data
+                result.put("id", transaction.getId());
+                result.put("transactionCode", transaction.getTransactionCode());
+                result.put("totalAmount", transaction.getTotalAmount());
+                result.put("processingFee", transaction.getProcessingFee());
+                result.put("paymentMethod", transaction.getPaymentMethod());
+                result.put("paymentStatus", transaction.getPaymentStatus());
+                result.put("paymentDate", transaction.getPaymentDate());
+                result.put("transactionType", transaction.getTransactionType());  // NEW
+                
+                // Check for ClassEnrollment
+                Optional<ClassEnrollment> enrollment = classEnrollmentRepository.findByTransactionId(transaction.getId());
+                if (enrollment.isPresent()) {
+                    ClassEnrollment ce = enrollment.get();
+                    result.put("className", ce.getClassEntity() != null ? ce.getClassEntity().getName() : null);
+                    result.put("classId", ce.getClassEntity() != null ? ce.getClassEntity().getId() : null);
+                    result.put("sessionCompleted", ce.getSessionCompleted());
                     
-                    // Basic transaction data
-                    result.put("id", transaction.getId());
-                    result.put("transactionCode", transaction.getTransactionCode());
-                    result.put("totalAmount", transaction.getTotalAmount());
-                    result.put("processingFee", transaction.getProcessingFee());
-                    result.put("paymentMethod", transaction.getPaymentMethod());
-                    result.put("paymentStatus", transaction.getPaymentStatus());
-                    result.put("paymentDate", transaction.getPaymentDate());
-                    
-                    // Check for ClassEnrollment
-                    Optional<ClassEnrollment> enrollment = classEnrollmentRepository.findByTransactionId(transaction.getId());
-                    if (enrollment.isPresent()) {
-                        ClassEnrollment ce = enrollment.get();
-                        result.put("className", ce.getClassEntity() != null ? ce.getClassEntity().getName() : null);
-                        result.put("classId", ce.getClassEntity() != null ? ce.getClassEntity().getId() : null);
-                        result.put("sessionCompleted", ce.getSessionCompleted());
-                        
-                        // Schedule data
-                        if (ce.getSchedule() != null) {
-                            result.put("scheduleId", ce.getSchedule().getId());
-                            result.put("scheduleDay", ce.getSchedule().getDay());
-                            result.put("scheduleDate", ce.getSchedule().getDate());
-                            result.put("scheduleTime", ce.getSchedule().getTimeSlot());
-                        }
+                    if (ce.getSchedule() != null) {
+                        result.put("scheduleId", ce.getSchedule().getId());
+                        result.put("scheduleDay", ce.getSchedule().getDay());
+                        result.put("scheduleDate", ce.getSchedule().getDate());
+                        result.put("scheduleTime", ce.getSchedule().getTimeSlot());
                     }
-                    
-                    // Check for Membership
-                    Optional<Membership> membership = membershipRepository.findByTransactionId(transaction.getId());
-                    if (membership.isPresent()) {
-                        Membership m = membership.get();
-                        result.put("membershipType", m.getMembershipType());
-                        result.put("membershipActivatedDate", m.getMembershipActivatedDate());
-                        result.put("membershipExpiryDate", m.getMembershipExpiryDate());
-                    }
-                    
-                    return result;
-                })
-                .collect(Collectors.toList());
-            
-            return ResponseEntity.ok(transactionDetails);
-            
-        } catch (Exception e) {
-            Map<String, String> errorResponse = new HashMap<>();
-            errorResponse.put("message", "Failed to fetch user transactions: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
-        }
+                }
+                
+                // Check for Membership
+                Optional<Membership> membership = membershipRepository.findByTransactionId(transaction.getId());
+                if (membership.isPresent()) {
+                    Membership m = membership.get();
+                    result.put("membershipType", m.getMembershipType());
+                    result.put("membershipActivatedDate", m.getMembershipActivatedDate());
+                    result.put("membershipExpiryDate", m.getMembershipExpiryDate());
+                }
+                
+                return result;
+            })
+            .collect(Collectors.toList());
+        
+        return ResponseEntity.ok(transactionDetails);
+        
+    } catch (Exception e) {
+        Map<String, String> errorResponse = new HashMap<>();
+        errorResponse.put("message", "Failed to fetch user transactions: " + e.getMessage());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
     }
+}
 
     @PutMapping("/{transactionId}/status")
     public ResponseEntity<Transaction> updateTransactionStatus(

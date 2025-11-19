@@ -24,12 +24,11 @@ public class Transaction {
     @Enumerated(EnumType.STRING)
     private PaymentStatus paymentStatus;
 
-    private LocalDateTime paymentDate;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private TransactionType transactionType;  // NEW: Added transaction type
 
-    // REMOVED: userEmail field (duplicate data)
-    // REMOVED: All membership fields  
-    // REMOVED: All class/schedule fields
-    // REMOVED: sessionCompleted field
+    private LocalDateTime paymentDate;
 
     // Getters and Setters
     public Long getId() { return id; }
@@ -52,6 +51,9 @@ public class Transaction {
 
     public PaymentStatus getPaymentStatus() { return paymentStatus; }
     public void setPaymentStatus(PaymentStatus paymentStatus) { this.paymentStatus = paymentStatus; }
+
+    public TransactionType getTransactionType() { return transactionType; }  // NEW
+    public void setTransactionType(TransactionType transactionType) { this.transactionType = transactionType; }  // NEW
 
     public LocalDateTime getPaymentDate() { return paymentDate; }
     public void setPaymentDate(LocalDateTime paymentDate) { this.paymentDate = paymentDate; }
