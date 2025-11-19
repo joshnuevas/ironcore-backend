@@ -61,4 +61,9 @@ public interface ClassEnrollmentRepository extends JpaRepository<ClassEnrollment
             @Param("date") LocalDate date,
             @Param("timeSlot") String timeSlot
     );
+
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM ClassEnrollment ce WHERE ce.schedule.id = :scheduleId")
+    void deleteByScheduleId(Long scheduleId);
 }

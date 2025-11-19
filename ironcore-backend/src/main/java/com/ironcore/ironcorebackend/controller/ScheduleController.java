@@ -3,6 +3,7 @@ package com.ironcore.ironcorebackend.controller;
 import com.ironcore.ironcorebackend.entity.Schedule;
 import com.ironcore.ironcorebackend.entity.ClassEntity;
 import com.ironcore.ironcorebackend.repository.ScheduleRepository;
+import com.ironcore.ironcorebackend.repository.ClassEnrollmentRepository;
 import com.ironcore.ironcorebackend.repository.ClassRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,11 +21,17 @@ public class ScheduleController {
 
     private final ScheduleRepository scheduleRepository;
     private final ClassRepository classRepository;
+    private final ClassEnrollmentRepository enrollmentRepository;
 
-    public ScheduleController(ScheduleRepository scheduleRepository, ClassRepository classRepository) {
+
+    public ScheduleController(ScheduleRepository scheduleRepository,
+                            ClassRepository classRepository,
+                            ClassEnrollmentRepository enrollmentRepository) {
         this.scheduleRepository = scheduleRepository;
         this.classRepository = classRepository;
+        this.enrollmentRepository = enrollmentRepository;
     }
+
 
     // Get all schedules with class info
     @GetMapping
@@ -155,19 +162,22 @@ public class ScheduleController {
         return ResponseEntity.ok(response);
     }
 
-    // Delete schedule
     @DeleteMapping("/{id}")
     public ResponseEntity<Map<String, String>> deleteSchedule(@PathVariable Long id) {
+
         Schedule schedule = scheduleRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Schedule not found"));
-        
-        // Check if schedule has enrollments
+
         if (schedule.getEnrolledCount() > 0) {
             throw new RuntimeException("Cannot delete schedule with existing enrollments");
         }
-        
+
+        // 🔥 Delete all enrollment records linked to this schedule
+        enrollmentRepository.deleteByScheduleId(id);
+
+        // Now safe to delete schedule
         scheduleRepository.delete(schedule);
-        
+
         Map<String, String> response = new HashMap<>();
         response.put("message", "Schedule deleted successfully");
         return ResponseEntity.ok(response);
