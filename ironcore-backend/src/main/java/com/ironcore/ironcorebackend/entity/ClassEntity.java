@@ -26,9 +26,9 @@ public class ClassEntity {
     private Integer maxParticipants;   // e.g. 15
     private String location;           // e.g. "Main Studio Floor"
     private String cancelPolicy;       // e.g. "You can cancel up to 2 hours before..."
-    private String imageUrl;           // e.g. "/images/hiit.png" or full URL
+    private String imageUrl;           // e.g. "/images/hiit.png"
 
-    // Link to Trainer (you already have Trainer entity)
+    // Link to Trainer
     @ManyToOne
     @JoinColumn(name = "trainer_id")
     private Trainer trainer;
@@ -41,28 +41,27 @@ public class ClassEntity {
     @JsonIgnore
     private List<ClassEnrollment> enrollments;
 
-    // Dynamic lists instead of hardcoded arrays in React
+    // Renamed Element Collections (no more generic "text" column)
     @ElementCollection
     @CollectionTable(name = "class_expectations", joinColumns = @JoinColumn(name = "class_id"))
-    @Column(name = "text")
+    @Column(name = "expectation_detail")
     private List<String> expectations;
 
     @ElementCollection
     @CollectionTable(name = "class_benefits", joinColumns = @JoinColumn(name = "class_id"))
-    @Column(name = "text")
+    @Column(name = "benefit_detail")
     private List<String> benefits;
 
     @ElementCollection
     @CollectionTable(name = "class_requirements", joinColumns = @JoinColumn(name = "class_id"))
-    @Column(name = "text")
+    @Column(name = "requirement_detail")
     private List<String> requirements;
 
     // ============================
     // Constructors
     // ============================
 
-    public ClassEntity() {
-    }
+    public ClassEntity() {}
 
     public ClassEntity(String name, String icon, String description, String duration, double price) {
         this.name = name;
@@ -73,7 +72,7 @@ public class ClassEntity {
     }
 
     // ============================
-    // Getters and Setters
+    // Getters & Setters
     // ============================
 
     public Long getId() {
@@ -213,13 +212,13 @@ public class ClassEntity {
     }
 
     // ============================
-    // Helper Methods
+    // Helper Method
     // ============================
 
     public long getActiveEnrollmentCount() {
         if (enrollments == null) return 0;
         return enrollments.stream()
-                .filter(enrollment -> enrollment.isPaid() && !enrollment.getSessionCompleted())
+                .filter(e -> e.isPaid() && !e.getSessionCompleted())
                 .count();
     }
 }
