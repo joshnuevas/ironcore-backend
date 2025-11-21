@@ -7,6 +7,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface ClassRepository extends JpaRepository<ClassEntity, Long> {
 
-    // ✅ To avoid duplicate seeding
+    // To avoid duplicate seeding
     boolean existsByName(String name);
 }

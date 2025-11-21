@@ -2,6 +2,7 @@ package com.ironcore.ironcorebackend.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+
 import java.util.List;
 
 @Entity
@@ -20,7 +21,18 @@ public class ClassEntity {
     private String duration;
     private double price;
 
-    // Relationships
+    // Extra info to fully power ClassDetailsPage from DB
+    private String intensity;          // e.g. "High", "Medium"
+    private Integer maxParticipants;   // e.g. 15
+    private String location;           // e.g. "Main Studio Floor"
+    private String cancelPolicy;       // e.g. "You can cancel up to 2 hours before..."
+    private String imageUrl;           // e.g. "/images/hiit.png" or full URL
+
+    // Link to Trainer (you already have Trainer entity)
+    @ManyToOne
+    @JoinColumn(name = "trainer_id")
+    private Trainer trainer;
+
     @OneToMany(mappedBy = "classEntity")
     @JsonIgnore
     private List<Schedule> schedules;
@@ -29,11 +41,28 @@ public class ClassEntity {
     @JsonIgnore
     private List<ClassEnrollment> enrollments;
 
+    // Dynamic lists instead of hardcoded arrays in React
+    @ElementCollection
+    @CollectionTable(name = "class_expectations", joinColumns = @JoinColumn(name = "class_id"))
+    @Column(name = "text")
+    private List<String> expectations;
+
+    @ElementCollection
+    @CollectionTable(name = "class_benefits", joinColumns = @JoinColumn(name = "class_id"))
+    @Column(name = "text")
+    private List<String> benefits;
+
+    @ElementCollection
+    @CollectionTable(name = "class_requirements", joinColumns = @JoinColumn(name = "class_id"))
+    @Column(name = "text")
+    private List<String> requirements;
+
     // ============================
     // Constructors
     // ============================
 
-    public ClassEntity() {}
+    public ClassEntity() {
+    }
 
     public ClassEntity(String name, String icon, String description, String duration, double price) {
         this.name = name;
@@ -95,6 +124,54 @@ public class ClassEntity {
         this.price = price;
     }
 
+    public String getIntensity() {
+        return intensity;
+    }
+
+    public void setIntensity(String intensity) {
+        this.intensity = intensity;
+    }
+
+    public Integer getMaxParticipants() {
+        return maxParticipants;
+    }
+
+    public void setMaxParticipants(Integer maxParticipants) {
+        this.maxParticipants = maxParticipants;
+    }
+
+    public String getLocation() {
+        return location;
+    }
+
+    public void setLocation(String location) {
+        this.location = location;
+    }
+
+    public String getCancelPolicy() {
+        return cancelPolicy;
+    }
+
+    public void setCancelPolicy(String cancelPolicy) {
+        this.cancelPolicy = cancelPolicy;
+    }
+
+    public String getImageUrl() {
+        return imageUrl;
+    }
+
+    public void setImageUrl(String imageUrl) {
+        this.imageUrl = imageUrl;
+    }
+
+    public Trainer getTrainer() {
+        return trainer;
+    }
+
+    public void setTrainer(Trainer trainer) {
+        this.trainer = trainer;
+    }
+
     public List<Schedule> getSchedules() {
         return schedules;
     }
@@ -109,6 +186,30 @@ public class ClassEntity {
 
     public void setEnrollments(List<ClassEnrollment> enrollments) {
         this.enrollments = enrollments;
+    }
+
+    public List<String> getExpectations() {
+        return expectations;
+    }
+
+    public void setExpectations(List<String> expectations) {
+        this.expectations = expectations;
+    }
+
+    public List<String> getBenefits() {
+        return benefits;
+    }
+
+    public void setBenefits(List<String> benefits) {
+        this.benefits = benefits;
+    }
+
+    public List<String> getRequirements() {
+        return requirements;
+    }
+
+    public void setRequirements(List<String> requirements) {
+        this.requirements = requirements;
     }
 
     // ============================
