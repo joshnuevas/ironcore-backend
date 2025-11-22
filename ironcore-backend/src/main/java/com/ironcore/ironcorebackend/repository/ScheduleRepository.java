@@ -20,4 +20,6 @@ public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
     @Transactional
     @Query("UPDATE Schedule s SET s.enrolledCount = s.enrolledCount + 1 WHERE s.id = :scheduleId")
     void incrementEnrolledCount(@Param("scheduleId") Long scheduleId);
+    @Query("SELECT SUM(s.maxParticipants - s.enrolledCount) FROM Schedule s")
+    Integer sumAvailableSlots();
 }

@@ -20,5 +20,6 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     List<Transaction> findByUserId(Long userId);
 
     List<Transaction> findByPaymentStatus(PaymentStatus paymentStatus);
+    long countByPaymentStatus(PaymentStatus paymentStatus);
 
 }

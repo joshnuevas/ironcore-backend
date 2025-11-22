@@ -60,48 +60,63 @@ public class AdminController {
         return null; // No error, user is admin
     }
 
-    @GetMapping("/stats")
-    public ResponseEntity<?> getAdminStats(HttpSession session) {
-        // Verify admin access
-        ResponseEntity<?> accessCheck = verifyAdminAccess(session);
-        if (accessCheck != null) return accessCheck;
+   @GetMapping("/stats")
+public ResponseEntity<?> getAdminStats(HttpSession session) {
+    // Verify admin access
+    ResponseEntity<?> accessCheck = verifyAdminAccess(session);
+    if (accessCheck != null) return accessCheck;
+    
+    try {
+        Map<String, Object> stats = new HashMap<>();
         
-        try {
-            Map<String, Object> stats = new HashMap<>();
-            
-            // Count active schedules (all schedules in the system)
-            long activeSchedules = scheduleRepository.count();
-            
-            // Count total registered users (excluding admins)
-            long totalMembers = userRepository.findAll().stream()
-                .filter(user -> !Boolean.TRUE.equals(user.getIsAdmin()))
-                .count();
-            
-            // Calculate available slots (sum of remaining capacity across all schedules)
-            int availableSlots = scheduleRepository.findAll().stream()
-                .mapToInt(schedule -> schedule.getMaxParticipants() - schedule.getEnrolledCount())
-                .sum();
-            
-            // Count completed transactions (transactions with COMPLETED payment status)
-            long completedTransactions = transactionRepository.findAll().stream()
-                .filter(transaction -> transaction.getPaymentStatus() == PaymentStatus.COMPLETED)
-                .count();
-            
-            stats.put("activeSchedules", activeSchedules);
-            stats.put("totalMembers", totalMembers);
-            stats.put("availableSlots", availableSlots);
-            stats.put("completedTransactions", completedTransactions);
-            
-            return ResponseEntity.ok(stats);
-        } catch (Exception e) {
-            System.err.println("Error fetching admin stats: " + e.getMessage());
-            e.printStackTrace();
-            
-            Map<String, String> errorResponse = new HashMap<>();
-            errorResponse.put("message", "Failed to fetch admin statistics");
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
-        }
+        // Count active schedules - use repository directly
+        long activeSchedules = scheduleRepository.count();
+        
+        // Count total registered users (excluding admins) - more efficient query
+        long totalMembers = userRepository.countByIsAdminFalseOrIsAdminIsNull();
+        
+        // If the above method doesn't exist, use this alternative:
+        // long totalMembers = userRepository.findNonAdminUsersCount();
+        
+        // Calculate available slots - more efficient approach
+        Integer availableSlotsSum = scheduleRepository.sumAvailableSlots();
+        int availableSlots = availableSlotsSum != null ? availableSlotsSum : 0;
+        
+        // Alternative if custom query method doesn't exist:
+        // List<Schedule> allSchedules = scheduleRepository.findAll();
+        // int availableSlots = allSchedules.stream()
+        //     .mapToInt(schedule -> {
+        //         int max = schedule.getMaxParticipants() != null ? schedule.getMaxParticipants() : 0;
+        //         int enrolled = schedule.getEnrolledCount() != null ? schedule.getEnrolledCount() : 0;
+        //         return Math.max(0, max - enrolled);
+        //     })
+        //     .sum();
+        
+        // Count completed transactions
+        long completedTransactions = transactionRepository.countByPaymentStatus(PaymentStatus.COMPLETED);
+        
+        // Debug logging
+        System.out.println("=== Admin Stats ===");
+        System.out.println("Active Schedules: " + activeSchedules);
+        System.out.println("Total Members: " + totalMembers);
+        System.out.println("Available Slots: " + availableSlots);
+        System.out.println("Completed Transactions: " + completedTransactions);
+        
+        stats.put("activeSchedules", activeSchedules);
+        stats.put("totalMembers", totalMembers);
+        stats.put("availableSlots", availableSlots);
+        stats.put("completedTransactions", completedTransactions);
+        
+        return ResponseEntity.ok(stats);
+    } catch (Exception e) {
+        System.err.println("Error fetching admin stats: " + e.getMessage());
+        e.printStackTrace();
+        
+        Map<String, String> errorResponse = new HashMap<>();
+        errorResponse.put("message", "Failed to fetch admin statistics: " + e.getMessage());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
     }
+}
 
     // NEW: Get enrolled users for a specific schedule - FIXED to use ClassEnrollment
     @GetMapping("/schedules/{scheduleId}/users")
