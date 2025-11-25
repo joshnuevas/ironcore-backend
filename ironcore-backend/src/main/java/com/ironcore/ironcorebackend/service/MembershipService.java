@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 public class MembershipService {
@@ -38,18 +39,27 @@ public class MembershipService {
         return membershipRepository.findByUserId(userId);
     }
 
-    // FIXED: Get active memberships for a specific user
+    // FIXED: Single implementation of getActiveMembershipsByUser
     public List<Membership> getActiveMembershipsByUser(Long userId) {
         if (userId == null) {
-            // If no userId provided, get all active memberships (for admin)
-            return membershipRepository.findActiveMemberships(LocalDateTime.now());
+            throw new IllegalArgumentException("User ID cannot be null");
         }
-        return membershipRepository.findActiveMembershipsByUser(userId, LocalDateTime.now());
+        
+        LocalDateTime now = LocalDateTime.now();
+        return membershipRepository.findActiveMembershipsByUser(userId, now)
+            .stream()
+            .filter(m -> m.getPaymentStatus() == PaymentStatus.COMPLETED)
+            .filter(m -> m.isCurrentlyActive())
+            .collect(Collectors.toList());
     }
 
     // NEW: Get all active memberships (admin use)
     public List<Membership> getAllActiveMemberships() {
-        return membershipRepository.findActiveMemberships(LocalDateTime.now());
+        return membershipRepository.findActiveMemberships(LocalDateTime.now())
+            .stream()
+            .filter(m -> m.getPaymentStatus() == PaymentStatus.COMPLETED)
+            .filter(m -> m.isCurrentlyActive())
+            .collect(Collectors.toList());
     }
 
     public List<Membership> getMembershipsByPaymentStatus(PaymentStatus status) {
@@ -65,5 +75,10 @@ public class MembershipService {
     // NEW: Get membership by transaction ID
     public Optional<Membership> getMembershipByTransactionId(Long transactionId) {
         return membershipRepository.findByTransactionId(transactionId);
+    }
+
+    // NEW: Get all memberships by user (including expired)
+    public List<Membership> getAllMembershipsByUser(Long userId) {
+        return membershipRepository.findByUserId(userId);
     }
 }
