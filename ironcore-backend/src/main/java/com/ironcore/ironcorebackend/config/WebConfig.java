@@ -2,6 +2,7 @@ package com.ironcore.ironcorebackend.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.lang.NonNull;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -14,10 +15,9 @@ public class WebConfig implements WebMvcConfigurer {
     private String uploadDir;
 
     @Override
-    public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // Serve uploaded files
+    public void addResourceHandlers(@NonNull ResourceHandlerRegistry registry) {
         String uploadPath = Paths.get(uploadDir).toAbsolutePath().toUri().toString();
-        
+
         registry.addResourceHandler("/uploads/profile-pictures/**")
                 .addResourceLocations(uploadPath);
     }
