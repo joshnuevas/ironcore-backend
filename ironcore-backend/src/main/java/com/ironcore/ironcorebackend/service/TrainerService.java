@@ -5,6 +5,7 @@ import com.ironcore.ironcorebackend.repository.TrainerRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -21,10 +22,12 @@ public class TrainerService {
     }
 
     public Optional<Trainer> getTrainerById(Long id) {
-        return trainerRepository.findById(id);
+        // Fix: enforce @NonNull parameter
+        return trainerRepository.findById(Objects.requireNonNull(id));
     }
 
     public Trainer saveTrainer(Trainer trainer) {
-        return trainerRepository.save(trainer);
+        // Fix: enforce @NonNull entity before saving
+        return trainerRepository.save(Objects.requireNonNull(trainer));
     }
 }

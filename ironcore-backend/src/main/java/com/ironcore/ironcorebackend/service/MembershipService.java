@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -20,7 +21,8 @@ public class MembershipService {
     }
 
     public Membership saveMembership(Membership membership) {
-        return membershipRepository.save(membership);
+        // Ensure non-null for null-safety annotations
+        return membershipRepository.save(Objects.requireNonNull(membership));
     }
 
     public List<Membership> getAllMemberships() {
@@ -28,7 +30,8 @@ public class MembershipService {
     }
 
     public Optional<Membership> getMembershipById(Long id) {
-        return membershipRepository.findById(id);
+        // Make analyzer happy that id cannot be null
+        return membershipRepository.findById(Objects.requireNonNull(id));
     }
 
     public Optional<Membership> getMembershipByTransactionCode(String code) {
@@ -36,7 +39,7 @@ public class MembershipService {
     }
 
     public List<Membership> getMembershipsByUser(Long userId) {
-        return membershipRepository.findByUserId(userId);
+        return membershipRepository.findByUserId(Objects.requireNonNull(userId));
     }
 
     // FIXED: Single implementation of getActiveMembershipsByUser
@@ -44,41 +47,41 @@ public class MembershipService {
         if (userId == null) {
             throw new IllegalArgumentException("User ID cannot be null");
         }
-        
+
         LocalDateTime now = LocalDateTime.now();
         return membershipRepository.findActiveMembershipsByUser(userId, now)
-            .stream()
-            .filter(m -> m.getPaymentStatus() == PaymentStatus.COMPLETED)
-            .filter(m -> m.isCurrentlyActive())
-            .collect(Collectors.toList());
+                .stream()
+                .filter(m -> m.getPaymentStatus() == PaymentStatus.COMPLETED)
+                .filter(Membership::isCurrentlyActive)
+                .collect(Collectors.toList());
     }
 
     // NEW: Get all active memberships (admin use)
     public List<Membership> getAllActiveMemberships() {
         return membershipRepository.findActiveMemberships(LocalDateTime.now())
-            .stream()
-            .filter(m -> m.getPaymentStatus() == PaymentStatus.COMPLETED)
-            .filter(m -> m.isCurrentlyActive())
-            .collect(Collectors.toList());
+                .stream()
+                .filter(m -> m.getPaymentStatus() == PaymentStatus.COMPLETED)
+                .filter(Membership::isCurrentlyActive)
+                .collect(Collectors.toList());
     }
 
     public List<Membership> getMembershipsByPaymentStatus(PaymentStatus status) {
         return membershipRepository.findByPaymentStatus(status);
     }
-    
+
     // NEW: Check if user has active membership
     public boolean hasActiveMembership(Long userId) {
         List<Membership> activeMemberships = getActiveMembershipsByUser(userId);
         return !activeMemberships.isEmpty();
     }
-    
+
     // NEW: Get membership by transaction ID
     public Optional<Membership> getMembershipByTransactionId(Long transactionId) {
-        return membershipRepository.findByTransactionId(transactionId);
+        return membershipRepository.findByTransactionId(Objects.requireNonNull(transactionId));
     }
 
     // NEW: Get all memberships by user (including expired)
     public List<Membership> getAllMembershipsByUser(Long userId) {
-        return membershipRepository.findByUserId(userId);
+        return membershipRepository.findByUserId(Objects.requireNonNull(userId));
     }
 }

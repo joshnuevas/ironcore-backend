@@ -4,6 +4,8 @@ import com.ironcore.ironcorebackend.entity.*;
 import com.ironcore.ironcorebackend.repository.*;
 import com.ironcore.ironcorebackend.service.MembershipService;
 import jakarta.servlet.http.HttpSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +20,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/attendance")
 @CrossOrigin(origins = "http://localhost:3000", allowCredentials = "true")
 public class AttendanceController {
+
+    private static final Logger logger = LoggerFactory.getLogger(AttendanceController.class);
 
     @Autowired
     private AttendanceRepository attendanceRepository;
@@ -69,8 +73,7 @@ public class AttendanceController {
             LocalDate targetDate = date != null ? LocalDate.parse(date) : LocalDate.now();
             System.out.println("Target date: " + targetDate);
 
-            // FIXED: Use getAllActiveMemberships instead of
-            // getActiveMembershipsByUser(null)
+            // Use getAllActiveMemberships
             List<Membership> activeMemberships = membershipService.getAllActiveMemberships();
             System.out.println("Active memberships found: " + activeMemberships.size());
 
@@ -116,7 +119,7 @@ public class AttendanceController {
             try {
                 attendanceRecords = attendanceRepository.findByAttendanceDate(targetDate);
                 System.out.println("Attendance records found: " + attendanceRecords.size());
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 System.out.println("No attendance records or error: " + e.getMessage());
                 // Continue with empty list
             }
@@ -168,9 +171,8 @@ public class AttendanceController {
 
             return ResponseEntity.ok(members);
 
-        } catch (Exception e) {
-            System.err.println("Error in getActiveMembers:");
-            e.printStackTrace();
+        } catch (RuntimeException e) {
+            logger.error("Error in getActiveMembers", e);
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("message", "Failed to fetch active members: " + e.getMessage());
             errorResponse.put("error", e.getClass().getSimpleName());
@@ -188,7 +190,8 @@ public class AttendanceController {
             System.out.println("=== Marking Attendance ===");
             System.out.println("Request: " + request);
 
-            Long userId = Long.valueOf(request.get("userId").toString());
+            // Use primitive long to avoid null-type-safety hint
+            long userId = Long.parseLong(request.get("userId").toString());
             String dateStr = request.get("date").toString();
             Boolean checkedIn = Boolean.valueOf(request.get("checkedIn").toString());
             String notes = null;
@@ -197,7 +200,12 @@ public class AttendanceController {
             }
 
             LocalDate attendanceDate = LocalDate.parse(dateStr);
-            Long adminId = (Long) session.getAttribute("userId");
+            Long adminIdObj = (Long) session.getAttribute("userId");
+            if (adminIdObj == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of("message", "Not authenticated. Please log in."));
+            }
+            long adminId = adminIdObj;
 
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> new RuntimeException("User not found"));
@@ -228,7 +236,7 @@ public class AttendanceController {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
             }
 
-            // FIXED: Check for existing attendance record
+            // Check for existing attendance record
             Optional<Attendance> existingAttendance = attendanceRepository
                     .findByUserIdAndAttendanceDate(userId, attendanceDate);
 
@@ -236,11 +244,10 @@ public class AttendanceController {
             boolean isUpdate = false;
 
             if (existingAttendance.isPresent()) {
-                // FIXED: Record already exists - this is an UPDATE operation
+                // UPDATE
                 attendance = existingAttendance.get();
                 isUpdate = true;
 
-                // Update the record
                 attendance.setCheckedIn(checkedIn);
                 attendance.setCheckInTime(checkedIn ? LocalDateTime.now() : null);
                 attendance.setCheckedByAdmin(admin);
@@ -250,7 +257,7 @@ public class AttendanceController {
 
                 System.out.println("Updating existing attendance record: " + attendance.getId());
             } else {
-                // FIXED: No existing record - this is a CREATE operation
+                // CREATE
                 attendance = new Attendance();
                 attendance.setUser(user);
                 attendance.setAttendanceDate(attendanceDate);
@@ -265,7 +272,6 @@ public class AttendanceController {
                 System.out.println("Creating new attendance record");
             }
 
-            // FIXED: Use try-catch to handle database constraint violations
             try {
                 Attendance saved = attendanceRepository.save(attendance);
                 System.out.println("Attendance saved: " + saved.getId());
@@ -282,27 +288,24 @@ public class AttendanceController {
                 return ResponseEntity.ok(response);
 
             } catch (org.springframework.dao.DataIntegrityViolationException e) {
-                // FIXED: Handle race condition where duplicate was created between check and
-                // save
-                System.err.println("Duplicate attendance record detected: " + e.getMessage());
+                // Handle race condition for duplicate
+                logger.error("Duplicate attendance record detected", e);
 
-                // Try to fetch the existing record and return conflict error
                 Optional<Attendance> conflictRecord = attendanceRepository
                         .findByUserIdAndAttendanceDate(userId, attendanceDate);
 
                 Map<String, Object> errorResponse = new HashMap<>();
                 errorResponse.put("message", "Attendance record already exists for this user on the selected date");
                 errorResponse.put("code", "DUPLICATE_ATTENDANCE");
-                if (conflictRecord.isPresent()) {
-                    errorResponse.put("existingAttendanceId", conflictRecord.get().getId());
-                    errorResponse.put("existingCheckedIn", conflictRecord.get().getCheckedIn());
-                }
+                conflictRecord.ifPresent(a -> {
+                    errorResponse.put("existingAttendanceId", a.getId());
+                    errorResponse.put("existingCheckedIn", a.getCheckedIn());
+                });
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
             }
 
-        } catch (Exception e) {
-            System.err.println("Error marking attendance:");
-            e.printStackTrace();
+        } catch (RuntimeException e) {
+            logger.error("Error marking attendance", e);
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("message", "Failed to mark attendance: " + e.getMessage());
             errorResponse.put("code", "SERVER_ERROR");
@@ -311,10 +314,9 @@ public class AttendanceController {
     }
 
     // Check if attendance exists for user and date
-    // FIXED: Simplified check endpoint - returns existing record if found
     @GetMapping("/check/{userId}/{date}")
     public ResponseEntity<?> checkAttendanceExists(
-            @PathVariable Long userId,
+            @PathVariable long userId,
             @PathVariable String date,
             HttpSession session) {
         ResponseEntity<?> accessCheck = verifyAdminAccess(session);
@@ -336,15 +338,14 @@ public class AttendanceController {
                 response.put("checkedIn", attendance.getCheckedIn());
                 response.put("checkInTime", attendance.getCheckInTime());
                 response.put("notes", attendance.getNotes());
-                return ResponseEntity.ok(response);
             } else {
                 response.put("exists", false);
-                return ResponseEntity.ok(response);
             }
 
-        } catch (Exception e) {
-            System.err.println("Error checking attendance:");
-            e.printStackTrace();
+            return ResponseEntity.ok(response);
+
+        } catch (RuntimeException e) {
+            logger.error("Error checking attendance", e);
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("message", "Failed to check attendance: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
@@ -354,8 +355,8 @@ public class AttendanceController {
     // Get attendance statistics
     @GetMapping("/stats")
     public ResponseEntity<?> getAttendanceStats(@RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate,
-            HttpSession session) {
+                                                @RequestParam(required = false) String endDate,
+                                                HttpSession session) {
         ResponseEntity<?> accessCheck = verifyAdminAccess(session);
         if (accessCheck != null)
             return accessCheck;
@@ -377,8 +378,8 @@ public class AttendanceController {
 
             return ResponseEntity.ok(stats);
 
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (RuntimeException e) {
+            logger.error("Failed to fetch attendance stats", e);
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("message", "Failed to fetch attendance stats: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
@@ -387,7 +388,7 @@ public class AttendanceController {
 
     // Get user's attendance history
     @GetMapping("/user/{userId}")
-    public ResponseEntity<?> getUserAttendance(@PathVariable Long userId, HttpSession session) {
+    public ResponseEntity<?> getUserAttendance(@PathVariable long userId, HttpSession session) {
         ResponseEntity<?> accessCheck = verifyAdminAccess(session);
         if (accessCheck != null)
             return accessCheck;
@@ -413,8 +414,8 @@ public class AttendanceController {
 
             return ResponseEntity.ok(records);
 
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (RuntimeException e) {
+            logger.error("Failed to fetch user attendance", e);
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("message", "Failed to fetch user attendance: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
@@ -423,16 +424,21 @@ public class AttendanceController {
 
     // Delete attendance record
     @DeleteMapping("/{attendanceId}")
-    public ResponseEntity<?> deleteAttendance(@PathVariable Long attendanceId, HttpSession session) {
+    public ResponseEntity<?> deleteAttendance(@PathVariable long attendanceId, HttpSession session) {
         ResponseEntity<?> accessCheck = verifyAdminAccess(session);
         if (accessCheck != null)
             return accessCheck;
 
         try {
-            Attendance attendance = attendanceRepository.findById(attendanceId)
-                    .orElseThrow(() -> new RuntimeException("Attendance record not found"));
+            // Check first if it exists
+            if (!attendanceRepository.existsById(attendanceId)) {
+                Map<String, String> errorResponse = new HashMap<>();
+                errorResponse.put("message", "Attendance record not found");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+            }
 
-            attendanceRepository.delete(attendance);
+            // Safe delete by ID, no nullable entity involved
+            attendanceRepository.deleteById(attendanceId);
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
@@ -440,8 +446,8 @@ public class AttendanceController {
 
             return ResponseEntity.ok(response);
 
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (RuntimeException e) {
+            logger.error("Failed to delete attendance", e);
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("message", "Failed to delete attendance: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
@@ -466,17 +472,15 @@ public class AttendanceController {
 
             System.out.println("=== Getting attendance for user: " + userId + " ===");
 
-            // FIXED: Get current active membership
+            // Get current active membership
             List<Membership> activeMemberships = membershipService.getActiveMembershipsByUser(userId);
 
             List<Map<String, Object>> records;
 
             if (activeMemberships.isEmpty()) {
-                // No active membership - return empty or show all historical
                 System.out.println("No active membership - returning empty attendance");
                 records = new ArrayList<>();
             } else {
-                // Get the most recent active membership
                 Membership activeMembership = activeMemberships.stream()
                         .max(Comparator.comparing(Membership::getMembershipActivatedDate))
                         .orElse(activeMemberships.get(0));
@@ -484,13 +488,11 @@ public class AttendanceController {
                 LocalDate subscriptionStart = activeMembership.getMembershipActivatedDate().toLocalDate();
                 LocalDate subscriptionEnd = activeMembership.getMembershipExpiryDate().toLocalDate();
 
-                // CRITICAL FIX: Get attendance ONLY for current subscription
                 List<Attendance> attendanceRecords = attendanceRepository
                         .findByUserIdOrderByAttendanceDateDesc(userId)
                         .stream()
                         .filter(a -> {
                             LocalDate attDate = a.getAttendanceDate();
-                            // ONLY include attendance within current subscription period
                             return !attDate.isBefore(subscriptionStart) && !attDate.isAfter(subscriptionEnd);
                         })
                         .collect(Collectors.toList());
@@ -517,9 +519,8 @@ public class AttendanceController {
 
             return ResponseEntity.ok(records);
 
-        } catch (Exception e) {
-            System.err.println("Error fetching user attendance:");
-            e.printStackTrace();
+        } catch (RuntimeException e) {
+            logger.error("Error fetching user attendance", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("message", "Failed to fetch attendance data: " + e.getMessage()));
         }
@@ -546,7 +547,6 @@ public class AttendanceController {
 
             System.out.println("=== Getting insights for user: " + userId + " ===");
 
-            // Get last 30 days of attendance
             LocalDate endDate = LocalDate.now();
             LocalDate startDate = endDate.minusDays(30);
 
@@ -555,7 +555,6 @@ public class AttendanceController {
                     .filter(a -> a.getUser().getId().equals(userId))
                     .collect(Collectors.toList());
 
-            // Calculate insights
             long totalSessions = attendanceRecords.size();
             long attendedSessions = attendanceRecords.stream()
                     .filter(Attendance::getCheckedIn)
@@ -563,7 +562,6 @@ public class AttendanceController {
             long missedSessions = totalSessions - attendedSessions;
             double attendanceRate = totalSessions > 0 ? (attendedSessions * 100.0) / totalSessions : 0;
 
-            // Calculate current streak
             int currentStreak = calculateCurrentStreak(attendanceRecords);
             int maxStreak = calculateMaxStreak(attendanceRecords);
 
@@ -578,9 +576,8 @@ public class AttendanceController {
 
             return ResponseEntity.ok(insights);
 
-        } catch (Exception e) {
-            System.err.println("Error fetching user insights:");
-            e.printStackTrace();
+        } catch (RuntimeException e) {
+            logger.error("Error fetching user insights", e);
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("message", "Failed to fetch attendance insights: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
@@ -592,7 +589,6 @@ public class AttendanceController {
         if (records.isEmpty())
             return 0;
 
-        // Sort by date descending (most recent first)
         List<Attendance> sorted = records.stream()
                 .sorted((a1, a2) -> a2.getAttendanceDate().compareTo(a1.getAttendanceDate()))
                 .collect(Collectors.toList());
@@ -616,7 +612,6 @@ public class AttendanceController {
         if (records.isEmpty())
             return 0;
 
-        // Sort by date ascending
         List<Attendance> sorted = records.stream()
                 .sorted(Comparator.comparing(Attendance::getAttendanceDate))
                 .collect(Collectors.toList());
@@ -661,7 +656,6 @@ public class AttendanceController {
 
             System.out.println("=== Getting subscription insights for user: " + userId + " ===");
 
-            // FIXED: Get ONLY the currently active membership
             List<Membership> activeMemberships = membershipService.getActiveMembershipsByUser(userId);
             if (activeMemberships.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -670,7 +664,6 @@ public class AttendanceController {
                                 "hasExpiredMemberships", hasExpiredMemberships(userId)));
             }
 
-            // Get the most recent active membership
             Membership activeMembership = activeMemberships.stream()
                     .max(Comparator.comparing(Membership::getMembershipActivatedDate))
                     .orElse(activeMemberships.get(0));
@@ -684,13 +677,11 @@ public class AttendanceController {
                     ", Start=" + subscriptionStart +
                     ", End=" + subscriptionEnd);
 
-            // CRITICAL FIX: Get attendance ONLY for the current subscription period
             List<Attendance> currentSubscriptionAttendance = attendanceRepository
                     .findByDateRange(subscriptionStart, today)
                     .stream()
                     .filter(a -> a.getUser().getId().equals(userId))
                     .filter(a -> {
-                        // ONLY include attendance within current subscription dates
                         LocalDate attDate = a.getAttendanceDate();
                         return !attDate.isBefore(subscriptionStart) && !attDate.isAfter(subscriptionEnd);
                     })
@@ -699,7 +690,6 @@ public class AttendanceController {
             System.out.println("Attendance records for CURRENT subscription: " +
                     currentSubscriptionAttendance.size());
 
-            // Calculate subscription-based metrics
             Map<String, Object> insights = calculateSubscriptionBasedInsights(
                     activeMembership,
                     currentSubscriptionAttendance,
@@ -707,30 +697,26 @@ public class AttendanceController {
                     subscriptionEnd,
                     today);
 
-            // Add membership ID to track which subscription this is for
             insights.put("membershipId", activeMembership.getId());
 
             return ResponseEntity.ok(insights);
 
-        } catch (Exception e) {
-            System.err.println("Error fetching subscription insights:");
-            e.printStackTrace();
+        } catch (RuntimeException e) {
+            logger.error("Error fetching subscription insights", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("message", "Failed to fetch subscription insights: " + e.getMessage()));
         }
     }
 
-
     private Map<String, Object> calculateSubscriptionBasedInsights(
             Membership membership,
-            List<Attendance> attendanceRecords, // Already filtered for current subscription
+            List<Attendance> attendanceRecords,
             LocalDate subscriptionStart,
             LocalDate subscriptionEnd,
             LocalDate today) {
 
         Map<String, Object> insights = new HashMap<>();
 
-        // Subscription period calculations
         long totalSubscriptionDays = java.time.temporal.ChronoUnit.DAYS.between(
                 subscriptionStart, subscriptionEnd) + 1;
         long daysUsed = java.time.temporal.ChronoUnit.DAYS.between(
@@ -738,18 +724,15 @@ public class AttendanceController {
         long daysRemaining = java.time.temporal.ChronoUnit.DAYS.between(
                 today, subscriptionEnd);
 
-        // Ensure daysUsed doesn't exceed totalSubscriptionDays
         if (daysUsed > totalSubscriptionDays) {
             daysUsed = totalSubscriptionDays;
             daysRemaining = 0;
         }
 
-        // Ensure daysRemaining is not negative
         if (daysRemaining < 0) {
             daysRemaining = 0;
         }
 
-        // Count only attended days (where checkedIn = true)
         long attendedDays = attendanceRecords.stream()
                 .filter(Attendance::getCheckedIn)
                 .count();
@@ -763,25 +746,19 @@ public class AttendanceController {
         System.out.println("  Days attended: " + attendedDays);
         System.out.println("  Total attendance records: " + attendanceRecords.size());
 
-        // Attendance Rate = (Days Attended / Days Used) * 100
         double attendanceRate = daysUsed > 0 ? (attendedDays * 100.0) / daysUsed : 0;
-
-        // Subscription Utilization Rate = (Days Attended / Total Subscription Days) *
-        // 100
-        double subscriptionUtilizationRate = totalSubscriptionDays > 0 ? (attendedDays * 100.0) / totalSubscriptionDays
+        double subscriptionUtilizationRate = totalSubscriptionDays > 0
+                ? (attendedDays * 100.0) / totalSubscriptionDays
                 : 0;
 
-        // Days per week target
         double targetDaysPerWeek = getTargetDaysPerWeek(membership.getMembershipType());
 
-        // Expected attendance by now
         double expectedAttendanceByNow = (daysUsed * targetDaysPerWeek) / 7.0;
 
-        // Target Achievement
-        double attendanceVsTarget = expectedAttendanceByNow > 0 ? (attendedDays * 100.0) / expectedAttendanceByNow
+        double attendanceVsTarget = expectedAttendanceByNow > 0
+                ? (attendedDays * 100.0) / expectedAttendanceByNow
                 : (attendedDays > 0 ? 100 : 0);
 
-        // Remaining days target
         double remainingDaysTarget = (daysRemaining * targetDaysPerWeek) / 7.0;
 
         System.out.println("Calculated metrics:");
@@ -791,7 +768,6 @@ public class AttendanceController {
         System.out.println("  Target Achievement: " + attendanceVsTarget + "%");
         System.out.println("  Remaining target: " + remainingDaysTarget);
 
-        // Generate feedback
         String feedback = generateSubscriptionBasedFeedback(
                 attendanceRate,
                 subscriptionUtilizationRate,
@@ -800,7 +776,6 @@ public class AttendanceController {
                 attendedDays,
                 membership.getMembershipType());
 
-        // Build response
         insights.put("subscriptionInfo", Map.of(
                 "membershipType", membership.getMembershipType(),
                 "startDate", subscriptionStart,
@@ -829,34 +804,21 @@ public class AttendanceController {
         return insights;
     }
 
+    // Converted to switch expression + null safety
     private double getTargetDaysPerWeek(String membershipType) {
-        switch (membershipType.toUpperCase()) {
-            case "BASIC":
-                return 2.0;
-            case "PREMIUM":
-                return 3.0;
-            case "ELITE":
-                return 4.0;
-            case "UNLIMITED":
-                return 5.0;
-            case "SILVER":
-                return 2.0;
-            case "GOLD":
-                return 3.0;
-            case "PLATINUM":
-                return 4.0;
-            case "MONTHLY":
-                return 3.0;
-            case "QUARTERLY":
-                return 3.0;
-            case "ANNUAL":
-                return 4.0;
-            default:
-                return 3.0;
+        if (membershipType == null) {
+            return 3.0;
         }
+        return switch (membershipType.toUpperCase()) {
+            case "BASIC", "SILVER" -> 2.0;
+            case "PREMIUM", "GOLD", "MONTHLY", "QUARTERLY" -> 3.0;
+            case "ELITE", "PLATINUM", "ANNUAL" -> 4.0;
+            case "UNLIMITED" -> 5.0;
+            default -> 3.0;
+        };
     }
 
-    // FIXED: Improved feedback generation
+    // Feedback generation
     private String generateSubscriptionBasedFeedback(
             double attendanceRate,
             double utilizationRate,
@@ -867,7 +829,6 @@ public class AttendanceController {
 
         StringBuilder feedback = new StringBuilder();
 
-        // Base feedback on attendance rate
         if (attendanceRate >= 80) {
             feedback.append("🎉 Excellent! You're attending ").append(Math.round(attendanceRate))
                     .append("% of your available days. ");
@@ -885,7 +846,6 @@ public class AttendanceController {
                     .append(Math.round(attendanceRate)).append("%. ");
         }
 
-        // Target performance
         if (vsTarget >= 120) {
             feedback.append("You're crushing your target by ").append(Math.round(vsTarget - 100))
                     .append("%! Amazing! 🏆");
@@ -900,7 +860,6 @@ public class AttendanceController {
             feedback.append("Let's increase your gym visits! 📈");
         }
 
-        // Days remaining context
         if (daysRemaining == 0) {
             feedback.append(" ⚠️ Your subscription has expired! Renew to continue tracking.");
         } else if (daysRemaining <= 3) {
@@ -911,7 +870,6 @@ public class AttendanceController {
             feedback.append(" You have ").append(daysRemaining).append(" days to maximize value!");
         }
 
-        // Utilization advice
         if (utilizationRate < 20 && attendedDays < 5) {
             feedback.append(" Every session counts towards your goals!");
         } else if (utilizationRate > 50) {
@@ -921,11 +879,7 @@ public class AttendanceController {
         return feedback.toString();
     }
 
-   
-
-    // FIXED: Better feedback type classification
     private String getFeedbackType(double attendanceRate, double vsTarget) {
-        // Prioritize attendance rate, but consider target achievement
         if (attendanceRate >= 80 && vsTarget >= 100) {
             return "excellent";
         } else if (attendanceRate >= 60 && vsTarget >= 80) {
@@ -937,7 +891,7 @@ public class AttendanceController {
         }
     }
 
-    // NEW: Get all memberships history with per-subscription statistics
+    // Get all memberships history with per-subscription statistics
     @GetMapping("/my-memberships-history")
     public ResponseEntity<?> getMyMembershipsHistory(HttpSession session) {
         try {
@@ -948,10 +902,8 @@ public class AttendanceController {
                         .body(Map.of("message", "Not authenticated. Please log in."));
             }
 
-            // Get ALL memberships for this user (active and expired)
             List<Membership> allMemberships = membershipService.getAllMembershipsByUser(userId);
 
-            // Sort by activation date (most recent first)
             allMemberships.sort((m1, m2) -> m2.getMembershipActivatedDate().compareTo(m1.getMembershipActivatedDate()));
 
             List<Map<String, Object>> membershipsWithStats = new ArrayList<>();
@@ -959,9 +911,7 @@ public class AttendanceController {
             for (Membership membership : allMemberships) {
                 LocalDate start = membership.getMembershipActivatedDate().toLocalDate();
                 LocalDate end = membership.getMembershipExpiryDate().toLocalDate();
-                LocalDate today = LocalDate.now();
 
-                // Get attendance for THIS specific membership period
                 List<Attendance> membershipAttendance = attendanceRepository
                         .findByDateRange(start, end)
                         .stream()
@@ -1001,9 +951,8 @@ public class AttendanceController {
 
             return ResponseEntity.ok(response);
 
-        } catch (Exception e) {
-            System.err.println("Error fetching memberships history:");
-            e.printStackTrace();
+        } catch (RuntimeException e) {
+            logger.error("Error fetching memberships history", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("message", "Failed to fetch memberships history: " + e.getMessage()));
         }
@@ -1014,7 +963,8 @@ public class AttendanceController {
         try {
             List<Membership> allMemberships = membershipService.getAllMembershipsByUser(userId);
             return allMemberships.stream().anyMatch(Membership::isExpired);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
+            logger.error("Error checking expired memberships", e);
             return false;
         }
     }

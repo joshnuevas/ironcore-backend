@@ -1,21 +1,28 @@
 package com.ironcore.ironcorebackend.controller;
 
-import com.ironcore.ironcorebackend.entity.*;
-import com.ironcore.ironcorebackend.repository.*;
+import com.ironcore.ironcorebackend.entity.ClassEnrollment;
+import com.ironcore.ironcorebackend.entity.ClassEntity;
+import com.ironcore.ironcorebackend.entity.Membership;
+import com.ironcore.ironcorebackend.entity.User;
+import com.ironcore.ironcorebackend.repository.ClassRepository;
+import com.ironcore.ironcorebackend.repository.UserRepository;
 import com.ironcore.ironcorebackend.service.ClassEnrollmentService;
 import com.ironcore.ironcorebackend.service.MembershipService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
 import java.util.*;
 
 @RestController
 @RequestMapping("/api/membership-classes")
 @CrossOrigin(origins = "http://localhost:3000", allowCredentials = "true")
 public class MembershipClassController {
+
+    private static final Logger logger = LoggerFactory.getLogger(MembershipClassController.class);
 
     @Autowired
     private MembershipService membershipService;
@@ -29,15 +36,28 @@ public class MembershipClassController {
     @Autowired
     private ClassRepository classRepository;
 
-    @Autowired
-    private TransactionRepository transactionRepository;
-
     @PostMapping("/assign")
     public ResponseEntity<?> assignClassesToMembership(@RequestBody Map<String, Object> request) {
         try {
-            Long userId = Long.valueOf(request.get("userId").toString());
-            Long membershipId = Long.valueOf(request.get("membershipId").toString()); // Changed from membershipTransactionId
-            List<Integer> classIds = (List<Integer>) request.get("classIds");
+            // ✅ Use primitives to avoid @NonNull Long hint
+            long userId = Long.parseLong(request.get("userId").toString());
+            long membershipId = Long.parseLong(request.get("membershipId").toString());
+
+            // ✅ Safe conversion of classIds to List<Integer> (no unchecked cast)
+            Object classIdsObj = request.get("classIds");
+            List<Integer> classIds = new ArrayList<>();
+            if (classIdsObj instanceof List<?> rawList) {
+                for (Object o : rawList) {
+                    if (o != null) {
+                        classIds.add(Integer.valueOf(o.toString()));
+                    }
+                }
+            } else {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("message", "Invalid classIds format. Expected a list of IDs.");
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+            }
 
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> new RuntimeException("User not found"));
@@ -50,10 +70,11 @@ public class MembershipClassController {
             List<ClassEnrollment> classEnrollments = new ArrayList<>();
 
             for (Integer classId : classIds) {
-                ClassEntity classEntity = classRepository.findById(Long.valueOf(classId))
+                ClassEntity classEntity = classRepository.findById(classId.longValue())
                         .orElseThrow(() -> new RuntimeException("Class not found: " + classId));
 
-                ClassEnrollment classEnrollment = new ClassEnrollment(user, classEntity, null, membership.getTransaction());
+                ClassEnrollment classEnrollment =
+                        new ClassEnrollment(user, classEntity, null, membership.getTransaction());
                 classEnrollment.setSessionCompleted(false);
 
                 classEnrollments.add(classEnrollment);
@@ -71,8 +92,8 @@ public class MembershipClassController {
 
             return ResponseEntity.ok(response);
 
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (RuntimeException e) { // ✅ narrower than generic Exception
+            logger.error("Error assigning classes to membership", e);
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("success", false);
             errorResponse.put("message", e.getMessage());

@@ -27,7 +27,7 @@ public class ClassController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ClassEntity> getClassById(@PathVariable Long id) {
+    public ResponseEntity<ClassEntity> getClassById(@PathVariable long id) {
         ClassEntity classEntity = classRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Class not found"));
         return ResponseEntity.ok(classEntity);
@@ -35,7 +35,7 @@ public class ClassController {
 
     // Full class details for ClassDetailsPage
     @GetMapping("/{id}/details")
-    public ResponseEntity<ClassDetailsDto> getClassDetails(@PathVariable Long id) {
+    public ResponseEntity<ClassDetailsDto> getClassDetails(@PathVariable long id) {
         ClassEntity cls = classRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Class not found"));
 
@@ -69,8 +69,6 @@ public class ClassController {
             t.setSessionsTaught(trainer.getSessionsTaught());
             t.setAvailability(trainer.getAvailability());
             t.setRating(trainer.getRating());
-
-            // ✅ Directly from Trainer entity (List<String>)
             t.setCertifications(trainer.getCertifications());
             t.setSpecializations(trainer.getSpecializations());
 

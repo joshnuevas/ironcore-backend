@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -22,16 +23,16 @@ public class ClassEnrollmentService {
         this.scheduleRepository = scheduleRepository;
     }
 
-    public ClassEnrollment saveEnrollment(ClassEnrollment enrollment) {
-        return classEnrollmentRepository.save(enrollment);
+    public ClassEnrollment saveEnrollment(final ClassEnrollment enrollment) {
+        return classEnrollmentRepository.save(Objects.requireNonNull(enrollment));
     }
-
     public List<ClassEnrollment> getAllEnrollments() {
         return classEnrollmentRepository.findAll();
     }
 
     public Optional<ClassEnrollment> getEnrollmentById(Long id) {
-        return classEnrollmentRepository.findById(id);
+        // Make analyzer happy: id must be non-null here
+        return classEnrollmentRepository.findById(Objects.requireNonNull(id));
     }
 
     // UPDATED: Use the correct repository method name
@@ -40,16 +41,16 @@ public class ClassEnrollmentService {
     }
 
     public List<ClassEnrollment> getEnrollmentsByUser(Long userId) {
-        return classEnrollmentRepository.findByUserId(userId);
+        return classEnrollmentRepository.findByUserId(Objects.requireNonNull(userId));
     }
 
     public void completeSession(Long enrollmentId) {
-        classEnrollmentRepository.markSessionCompleted(enrollmentId);
+        classEnrollmentRepository.markSessionCompleted(Objects.requireNonNull(enrollmentId));
     }
 
     // Get enrollments by schedule
     public List<ClassEnrollment> getEnrollmentsBySchedule(Long scheduleId) {
-        return classEnrollmentRepository.findByScheduleId(scheduleId);
+        return classEnrollmentRepository.findByScheduleId(Objects.requireNonNull(scheduleId));
     }
 
     // Get paid enrollments
@@ -66,11 +67,11 @@ public class ClassEnrollmentService {
             throw new IllegalArgumentException("User ID and Schedule ID cannot be null");
         }
 
-        Schedule schedule = scheduleRepository.findById(scheduleId)
+        Schedule schedule = scheduleRepository.findById(Objects.requireNonNull(scheduleId))
                 .orElseThrow(() -> new RuntimeException("Schedule not found with ID: " + scheduleId));
 
         var conflicts = classEnrollmentRepository.findConflictingSchedules(
-                userId,
+                Objects.requireNonNull(userId),
                 schedule.getDate(),
                 schedule.getTimeSlot()
         );

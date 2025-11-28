@@ -2,7 +2,6 @@ package com.ironcore.ironcorebackend.controller;
 
 import com.ironcore.ironcorebackend.entity.*;
 import com.ironcore.ironcorebackend.dto.TransactionRequest;
-import com.ironcore.ironcorebackend.service.MembershipService;
 import com.ironcore.ironcorebackend.service.TransactionService;
 import com.ironcore.ironcorebackend.repository.ClassEnrollmentRepository;
 import com.ironcore.ironcorebackend.repository.MembershipRepository;
@@ -10,11 +9,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -25,16 +21,15 @@ public class TransactionController {
     private final TransactionService transactionService;
     private final ClassEnrollmentRepository classEnrollmentRepository;
     private final MembershipRepository membershipRepository;
-    private final MembershipService membershipService;
 
-    public TransactionController(TransactionService transactionService,
-                                ClassEnrollmentRepository classEnrollmentRepository,
-                                MembershipRepository membershipRepository,
-                                MembershipService membershipService) {
+    public TransactionController(
+            TransactionService transactionService,
+            ClassEnrollmentRepository classEnrollmentRepository,
+            MembershipRepository membershipRepository
+    ) {
         this.transactionService = transactionService;
         this.classEnrollmentRepository = classEnrollmentRepository;
         this.membershipRepository = membershipRepository;
-        this.membershipService = membershipService; 
     }
 
     @PostMapping

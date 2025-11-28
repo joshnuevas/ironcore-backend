@@ -6,6 +6,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class GeminiService {
@@ -26,10 +27,14 @@ public class GeminiService {
     }
 
     public Mono<String> generateText(String prompt) {
-        String url = String.format("%s/%s:generateContent?key=%s",
-                baseUrl, model, apiKey);
+        final String url = String.format(
+                "%s/%s:generateContent?key=%s",
+                baseUrl,
+                model,
+                apiKey
+        );
 
-        Map<String, Object> body = Map.of(
+        final Map<String, Object> body = Map.of(
                 "contents", new Object[]{
                         Map.of("parts", new Object[]{
                                 Map.of("text", prompt)
@@ -38,8 +43,8 @@ public class GeminiService {
         );
 
         return webClient.post()
-                .uri(url)
-                .bodyValue(body)
+                .uri(Objects.requireNonNull(url))
+                .bodyValue(Objects.requireNonNull(body))
                 .retrieve()
                 .bodyToMono(Map.class)
                 .map(response -> {

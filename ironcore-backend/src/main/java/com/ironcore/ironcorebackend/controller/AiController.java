@@ -124,7 +124,8 @@ public class AiController {
             userId = num.longValue();
         } else if (userIdObj instanceof String s && !s.isBlank()) {
             try {
-                userId = Long.parseLong(s.trim());
+                // ✅ Fix: avoid "unnecessary temporary" by converting directly to Long
+                userId = Long.valueOf(s.trim());
             } catch (NumberFormatException ignored) {}
         }
 

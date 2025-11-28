@@ -8,8 +8,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/trainers")
-// ❌ Remove this line:
-// @CrossOrigin(origins = "*")
 public class TrainerController {
 
     private final TrainerRepository trainerRepository;
@@ -24,7 +22,7 @@ public class TrainerController {
     }
 
     @GetMapping("/{id}")
-    public Trainer getOne(@PathVariable Long id) {
+    public Trainer getOne(@PathVariable long id) {
         return trainerRepository.findById(id).orElse(null);
     }
 }

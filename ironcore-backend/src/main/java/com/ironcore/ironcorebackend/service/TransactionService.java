@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 @Transactional
@@ -26,7 +27,7 @@ public class TransactionService {
 
     private static final Logger logger = LoggerFactory.getLogger(TransactionService.class);
     private static final String TRANSACTION_PREFIX = "IRC";
-    
+
     private final TransactionRepository transactionRepository;
     private final UserRepository userRepository;
     private final ClassRepository classRepository;
@@ -52,21 +53,24 @@ public class TransactionService {
         this.transactionContexts = new ConcurrentHashMap<>();
     }
 
-    // Create a new transaction and related domain records
+    // ==============================
+    // CREATE TRANSACTION
+    // ==============================
     public Transaction createTransaction(TransactionRequest request) {
         logger.info("=== CREATE TRANSACTION STARTED ===");
-        logger.info("Request - UserId: {}, MembershipType: {}, ScheduleId: {}, PaymentStatus: {}", 
-                   request.getUserId(), request.getMembershipType(), request.getScheduleId(), request.getPaymentStatus());
-        
+        logger.info("Request - UserId: {}, MembershipType: {}, ScheduleId: {}, PaymentStatus: {}",
+                request.getUserId(), request.getMembershipType(), request.getScheduleId(), request.getPaymentStatus());
+
         logger.info("=== RECEIVED REQUEST ===");
         logger.info("ScheduleId: {}, ClassId: {}", request.getScheduleId(), request.getClassId());
         logger.info("PaymentStatus: {}", request.getPaymentStatus());
 
         // Validate request
         validateTransactionRequest(request);
-        
-        User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new RuntimeException("User not found with ID: " + request.getUserId()));
+
+        Long userId = Objects.requireNonNull(request.getUserId(), "User ID cannot be null after validation");
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
 
         Transaction transaction = createTransactionEntity(request, user);
         logger.info("Payment Status: {}", transaction.getPaymentStatus());
@@ -74,13 +78,13 @@ public class TransactionService {
         // Generate transaction code based on type
         String transactionCode = generateTransactionCodeBasedOnRequest(request);
         transaction.setTransactionCode(transactionCode);
-        
+
         // Create transaction context
         TransactionContext context = createTransactionContext(request);
-        
-        // Handle transaction type and store context if payment is not completed
+
+        // Handle transaction type
         if (request.getMembershipType() != null) {
-            handleMembershipTransaction(transaction, request, context);
+            handleMembershipTransaction(transaction, request);
         } else if (request.getScheduleId() != null) {
             handleClassTransaction(transaction, request, context);
         } else {
@@ -90,12 +94,12 @@ public class TransactionService {
         // Save transaction FIRST to get an ID
         Transaction savedTransaction = transactionRepository.save(transaction);
         logger.info("Transaction saved with ID: {}", savedTransaction.getId());
-        
-        // Store context using the saved transaction ID
+
+        // Store context using the saved transaction ID if not fully paid
         if (shouldStoreContext(transaction.getPaymentStatus())) {
             storeTransactionContext(savedTransaction.getId(), context);
         }
-        
+
         logger.info("=== CREATE TRANSACTION COMPLETED ===");
         return savedTransaction;
     }
@@ -105,11 +109,15 @@ public class TransactionService {
             return generateTransactionCode(request.getMembershipType());
         } else if (request.getScheduleId() != null) {
             try {
-                Schedule schedule = scheduleRepository.findById(request.getScheduleId())
-                        .orElseThrow(() -> new RuntimeException("Schedule not found with ID: " + request.getScheduleId()));
+                Long scheduleId = Objects.requireNonNull(
+                        request.getScheduleId(),
+                        "Schedule ID cannot be null when generating code"
+                );
+                Schedule schedule = scheduleRepository.findById(scheduleId)
+                        .orElseThrow(() -> new RuntimeException("Schedule not found with ID: " + scheduleId));
                 ClassEntity classEntity = schedule.getClassEntity();
                 return generateTransactionCode(classEntity.getName());
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 logger.warn("Failed to generate class-specific transaction code, using generic", e);
                 return generateTransactionCode("CLASS");
             }
@@ -133,15 +141,22 @@ public class TransactionService {
     private Transaction createTransactionEntity(TransactionRequest request, User user) {
         Transaction transaction = new Transaction();
         transaction.setUser(user);
-        transaction.setProcessingFee(request.getProcessingFee() != null ? request.getProcessingFee() : 0.0);
-        transaction.setTotalAmount(request.getTotalAmount() != null ? request.getTotalAmount() : 0.0);
-        transaction.setPaymentMethod(request.getPaymentMethod() != null ? request.getPaymentMethod() : "UNKNOWN");
+
+        // Avoid unnecessary unboxing warnings
+        Double processingFee = request.getProcessingFee();
+        Double totalAmount = request.getTotalAmount();
+        transaction.setProcessingFee(processingFee != null ? processingFee : 0.0);
+        transaction.setTotalAmount(totalAmount != null ? totalAmount : 0.0);
+
+        transaction.setPaymentMethod(
+                request.getPaymentMethod() != null ? request.getPaymentMethod() : "UNKNOWN"
+        );
 
         PaymentStatus paymentStatus = PaymentStatus.valueOf(request.getPaymentStatus().toUpperCase());
         transaction.setPaymentStatus(paymentStatus);
         transaction.setPaymentDate(LocalDateTime.now());
 
-        // ⭐ NEW: infer transaction type
+        // Infer transaction type
         if (request.getMembershipType() != null) {
             transaction.setTransactionType(TransactionType.MEMBERSHIP);
         } else if (request.getScheduleId() != null || request.getClassId() != null) {
@@ -165,40 +180,50 @@ public class TransactionService {
         return paymentStatus != PaymentStatus.COMPLETED;
     }
 
-    private void handleMembershipTransaction(Transaction transaction, TransactionRequest request, TransactionContext context) {
+    // ==============================
+    // HANDLERS BY TYPE
+    // ==============================
+
+    private void handleMembershipTransaction(Transaction transaction,
+                                             TransactionRequest request) {
         logger.info("✅ This is a MEMBERSHIP transaction");
         logger.info("Generated Transaction Code: {}", transaction.getTransactionCode());
-        
+
         if (transaction.getPaymentStatus() == PaymentStatus.COMPLETED) {
             logger.info("🔄 Creating membership record...");
             createMembershipFromTransaction(transaction, request);
         } else {
-            logger.info("⏸️ Payment not completed, will store context for later");
-            // Context will be stored after transaction is saved
+            logger.info("⏸️ Payment not completed, membership will be created once completed.");
         }
     }
 
-    private void handleClassTransaction(Transaction transaction, TransactionRequest request, TransactionContext context) {
+    private void handleClassTransaction(Transaction transaction,
+                                        TransactionRequest request,
+                                        TransactionContext context) {
         logger.info("✅ This is a CLASS transaction");
         logger.info("Generated Transaction Code: {}", transaction.getTransactionCode());
-        
+
         try {
-            Schedule schedule = scheduleRepository.findById(request.getScheduleId())
-                    .orElseThrow(() -> new RuntimeException("Schedule not found with ID: " + request.getScheduleId()));
+            Long scheduleId = Objects.requireNonNull(
+                    request.getScheduleId(),
+                    "Schedule ID cannot be null when handling class transaction"
+            );
+
+            Schedule schedule = scheduleRepository.findById(scheduleId)
+                    .orElseThrow(() -> new RuntimeException("Schedule not found with ID: " + scheduleId));
             ClassEntity classEntity = schedule.getClassEntity();
-            
+
             // Store class context
             context.setClassId(classEntity.getId());
             context.setClassName(classEntity.getName());
-            
+
             if (transaction.getPaymentStatus() == PaymentStatus.COMPLETED) {
                 logger.info("🔄 Creating class enrollment record...");
                 createClassEnrollmentFromTransaction(transaction, schedule, classEntity);
             } else {
-                logger.info("⏸️ Payment not completed, will store context for later");
-                // Context will be stored after transaction is saved
+                logger.info("⏸️ Payment not completed, will create enrollment when status becomes COMPLETED");
             }
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("Error handling class transaction", e);
             throw new RuntimeException("Failed to process class transaction: " + e.getMessage(), e);
         }
@@ -209,7 +234,10 @@ public class TransactionService {
         logger.info("Generated Transaction Code: {}", transaction.getTransactionCode());
     }
 
-    // Store transaction context with null safety (after we have an ID)
+    // ==============================
+    // CONTEXT STORAGE
+    // ==============================
+
     private void storeTransactionContext(Long transactionId, TransactionContext context) {
         if (transactionId == null) {
             throw new IllegalArgumentException("Transaction ID cannot be null when storing context");
@@ -217,24 +245,24 @@ public class TransactionService {
         if (context == null) {
             throw new IllegalArgumentException("Transaction context cannot be null");
         }
-        
+
         transactionContexts.put(transactionId, context);
         logger.info("💾 Stored transaction context for ID: {}", transactionId);
-        logger.info("Context - MembershipType: {}, ScheduleId: {}, ClassId: {}", 
-                   context.getMembershipType(), context.getScheduleId(), context.getClassId());
-
-        logger.info("💾 Storing context - ScheduleId: {}, ClassId: {}", 
-        context.getScheduleId(), context.getClassId());           
+        logger.info("Context - MembershipType: {}, ScheduleId: {}, ClassId: {}",
+                context.getMembershipType(), context.getScheduleId(), context.getClassId());
     }
 
-    // Generate a unique transaction code
+    // ==============================
+    // CODE GENERATION
+    // ==============================
+
     private String generateTransactionCode(String typeCode) {
         try {
             String type = (typeCode != null && typeCode.length() >= 3)
                     ? typeCode.substring(0, 3).toUpperCase()
                     : "GEN";
             return TRANSACTION_PREFIX + "-" + type + "-" + generateRandomAlphanumeric(5);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.warn("Error generating transaction code, using fallback", e);
             return TRANSACTION_PREFIX + "-GEN-" + generateRandomAlphanumeric(5);
         }
@@ -250,6 +278,10 @@ public class TransactionService {
         return result.toString();
     }
 
+    // ==============================
+    // MEMBERSHIP CREATION
+    // ==============================
+
     private void createMembershipFromTransaction(Transaction transaction, TransactionRequest request) {
         try {
             logger.info("=== CREATING MEMBERSHIP (PENDING) ===");
@@ -259,32 +291,34 @@ public class TransactionService {
             membership.setTransaction(transaction);
             membership.setMembershipType(request.getMembershipType());
 
-            // ❗ Pending: no dates yet
+            // Pending: no dates yet
             membership.setMembershipActivatedDate(null);
             membership.setMembershipExpiryDate(null);
-
             membership.setTransactionCode(transaction.getTransactionCode());
 
             Membership savedMembership = membershipRepository.save(membership);
             logger.info("✅ Pending membership saved with ID: {}", savedMembership.getId());
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("❌ Error creating membership for transaction: {}", transaction.getId(), e);
             throw new RuntimeException("Failed to create membership: " + e.getMessage(), e);
         }
     }
 
-    // Create class enrollment from transaction
-    private void createClassEnrollmentFromTransaction(Transaction transaction, Schedule schedule, ClassEntity classEntity) {
+    // ==============================
+    // CLASS ENROLLMENT CREATION
+    // ==============================
+
+    private void createClassEnrollmentFromTransaction(Transaction transaction,
+                                                      Schedule schedule,
+                                                      ClassEntity classEntity) {
         try {
             logger.info("=== CREATING CLASS ENROLLMENT ===");
 
             Long userId = transaction.getUser().getId();
-            String timeSlot = schedule.getTimeSlot();
             var date = schedule.getDate();
+            String timeSlot = schedule.getTimeSlot();
 
-            // ======================================================
-            // 🔍 1. CHECK FOR SCHEDULE CONFLICTS
-            // ======================================================
+            // 1. Check schedule conflicts
             logger.info("Checking for schedule conflicts for User {} on {} at {}",
                     userId, date, timeSlot);
 
@@ -296,16 +330,13 @@ public class TransactionService {
 
             if (!conflicts.isEmpty()) {
                 logger.warn("❌ Schedule conflict detected. Cannot enroll user {}.", userId);
-
                 throw new RuntimeException(
                         "Cannot enroll. You already booked another class on "
                                 + date + " at " + timeSlot + "."
                 );
             }
 
-            // ======================================================
             // 2. Create enrollment
-            // ======================================================
             ClassEnrollment enrollment =
                     new ClassEnrollment(transaction.getUser(), classEntity, schedule, transaction);
             enrollment.setSessionCompleted(false);
@@ -313,11 +344,9 @@ public class TransactionService {
             logger.info("Enrollment Details - Class: {}, Schedule: {}, User: {}",
                     classEntity.getName(), schedule.getId(), transaction.getUser().getUsername());
 
-            // ======================================================
-            // 3. Update Schedule Enrollment Count
-            // ======================================================
-            int currentEnrolledCount =
-                    schedule.getEnrolledCount() != null ? schedule.getEnrolledCount() : 0;
+            // 3. Update Schedule Enrollment Count (null-safe)
+            Integer enrolledCountObj = schedule.getEnrolledCount();
+            int currentEnrolledCount = (enrolledCountObj != null) ? enrolledCountObj : 0;
 
             schedule.setEnrolledCount(currentEnrolledCount + 1);
             scheduleRepository.save(schedule);
@@ -325,33 +354,33 @@ public class TransactionService {
             logger.info("✅ Schedule enrolled count updated from {} to {}",
                     currentEnrolledCount, schedule.getEnrolledCount());
 
-            // ======================================================
-            // 4. Save Enrollment
-            // ======================================================
+            // 4. Save enrollment
             ClassEnrollment savedEnrollment = classEnrollmentRepository.save(enrollment);
-
             logger.info("✅ Enrollment saved with ID: {}", savedEnrollment.getId());
             logger.info("=== ENROLLMENT CREATION COMPLETE ===");
 
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("❌ Error creating class enrollment for transaction {}: {}",
                     transaction.getId(), e.getMessage(), e);
             throw new RuntimeException("Failed to create class enrollment: " + e.getMessage(), e);
         }
     }
 
-    // Update transaction status and handle domain records
+    // ==============================
+    // STATUS UPDATE
+    // ==============================
+
     public Transaction updateTransactionStatus(Long transactionId, String status) {
         logger.info("=== UPDATE TRANSACTION STATUS ===");
         logger.info("Transaction ID: {}, New Status: {}", transactionId, status);
-        
+
         if (transactionId == null) {
             throw new IllegalArgumentException("Transaction ID cannot be null");
         }
         if (status == null || status.trim().isEmpty()) {
             throw new IllegalArgumentException("Status cannot be null or empty");
         }
-        
+
         Transaction transaction = transactionRepository.findById(transactionId)
                 .orElseThrow(() -> new RuntimeException("Transaction not found with ID: " + transactionId));
 
@@ -374,12 +403,11 @@ public class TransactionService {
     }
 
     private void handleCompletedPayment(Transaction transaction) {
-        // Check if domain records already exist
         boolean membershipExists = membershipRepository.findByTransactionId(transaction.getId()).isPresent();
         boolean enrollmentExists = classEnrollmentRepository.findByTransactionId(transaction.getId()).isPresent();
-        
+
         logger.info("Membership exists: {}, Enrollment exists: {}", membershipExists, enrollmentExists);
-        
+
         if (!membershipExists && !enrollmentExists) {
             logger.info("🔄 Creating domain records for completed transaction...");
             createDomainRecordsForCompletedTransaction(transaction);
@@ -392,14 +420,14 @@ public class TransactionService {
         try {
             logger.info("🔄 Creating domain records for transaction: {}", transaction.getId());
             logger.info("Transaction Code: {}", transaction.getTransactionCode());
-            
+
             // Get stored transaction context
             TransactionContext context = transactionContexts.get(transaction.getId());
-            
+
             if (context != null) {
-                logger.info("📋 Found transaction context - MembershipType: {}, ScheduleId: {}, ClassId: {}", 
-                           context.getMembershipType(), context.getScheduleId(), context.getClassId());
-                
+                logger.info("📋 Found transaction context - MembershipType: {}, ScheduleId: {}, ClassId: {}",
+                        context.getMembershipType(), context.getScheduleId(), context.getClassId());
+
                 if (context.getMembershipType() != null) {
                     logger.info("📋 Creating membership from stored context");
                     createMembershipFromStoredContext(transaction, context);
@@ -414,24 +442,22 @@ public class TransactionService {
                 logger.warn("⚠️ No stored context - trying to determine from transaction code");
                 determineAndCreateDomainRecordsFromCode(transaction);
             }
-            
-        } catch (Exception e) {
+
+        } catch (RuntimeException e) {
             logger.error("❌ Error creating domain records for transaction: {}", transaction.getId(), e);
             throw new RuntimeException("Failed to create domain records: " + e.getMessage(), e);
         }
     }
 
-    // Create membership from stored context
     private void createMembershipFromStoredContext(Transaction transaction, TransactionContext context) {
         try {
             logger.info("🔄 Creating membership from stored context (PENDING)...");
-            
+
             Membership membership = new Membership();
             membership.setUser(transaction.getUser());
             membership.setTransaction(transaction);
             membership.setMembershipType(context.getMembershipType());
 
-            // ❗ Pending
             membership.setMembershipActivatedDate(null);
             membership.setMembershipExpiryDate(null);
             membership.setTransactionCode(transaction.getTransactionCode());
@@ -441,53 +467,44 @@ public class TransactionService {
                     savedMembership.getId(), savedMembership.getMembershipType());
 
             transactionContexts.remove(transaction.getId());
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("❌ Error creating membership from context for transaction: {}", transaction.getId(), e);
             throw new RuntimeException("Failed to create membership from context: " + e.getMessage(), e);
         }
     }
 
-    // Create class enrollment from stored context
     private void createClassEnrollmentFromStoredContext(Transaction transaction, TransactionContext context) {
         try {
             logger.info("🔄 Creating class enrollment from stored context...");
             logger.info("Context - ScheduleId: {}, ClassId: {}", context.getScheduleId(), context.getClassId());
 
-            // ======================================================
-            // 0. Validate required data
-            // ======================================================
-            if (context.getScheduleId() == null) {
-                throw new IllegalArgumentException("ScheduleId is null in context");
-            }
-            if (context.getClassId() == null) {
-                throw new IllegalArgumentException("ClassId is null in context");
-            }
+            // Validate required data using Objects.requireNonNull so the analyzer knows it's non-null
+            Long scheduleId = Objects.requireNonNull(
+                    context.getScheduleId(),
+                    "ScheduleId is null in context"
+            );
+            Long classId = Objects.requireNonNull(
+                    context.getClassId(),
+                    "ClassId is null in context"
+            );
 
-            // ======================================================
-            // 1. Fetch Schedule and Class
-            // ======================================================
-            logger.info("🔍 Fetching schedule with ID: {}", context.getScheduleId());
-            Schedule schedule = scheduleRepository.findById(context.getScheduleId())
-                    .orElseThrow(() -> new RuntimeException("Schedule not found with ID: " + context.getScheduleId()));
+            Schedule schedule = scheduleRepository.findById(scheduleId)
+                    .orElseThrow(() -> new RuntimeException("Schedule not found with ID: " + scheduleId));
 
-            logger.info("🔍 Fetching class with ID: {}", context.getClassId());
-            ClassEntity classEntity = classRepository.findById(context.getClassId())
-                    .orElseThrow(() -> new RuntimeException("Class not found with ID: " + context.getClassId()));
+            ClassEntity classEntity = classRepository.findById(classId)
+                    .orElseThrow(() -> new RuntimeException("Class not found with ID: " + classId));
 
             logger.info("✅ Found schedule: {} and class: {}", schedule.getId(), classEntity.getName());
 
-            Long userId   = transaction.getUser().getId();
-            var  date     = schedule.getDate();
+            Long userId = transaction.getUser().getId();
+            var date = schedule.getDate();
             String timeSlot = schedule.getTimeSlot();
 
-            // ======================================================
-            // 2. CHECK FOR SCHEDULE CONFLICTS (same date + timeSlot)
-            //    Prevents user from booking TWO classes at same time
-            // ======================================================
+            // 1. Check for schedule conflicts
             logger.info("Checking for schedule conflicts for User {} on {} at {} (stored context)",
                     userId, date, timeSlot);
 
-            var conflicts = classEnrollmentRepository.findConflictingSchedules(
+            List<ClassEnrollment> conflicts = classEnrollmentRepository.findConflictingSchedules(
                     userId,
                     date,
                     timeSlot
@@ -503,42 +520,35 @@ public class TransactionService {
                 );
             }
 
-            // ======================================================
-            // 3. CHECK FOR DUPLICATE IN SAME CLASS + SCHEDULE
-            //    (user, class, scheduleId) – same as Option 1
-            // ======================================================
+            // 2. Check duplicate active enrollment for same class + schedule
             boolean existingEnrollmentSameSchedule = classEnrollmentRepository
                     .findByUserIdAndClassEntityIdAndScheduleId(
                             userId,
-                            context.getClassId(),
-                            context.getScheduleId()
+                            classId,
+                            scheduleId
                     )
                     .stream()
                     .anyMatch(enrollment ->
                             enrollment.isPaid() &&
-                            !Boolean.TRUE.equals(enrollment.getSessionCompleted())
+                                    !Boolean.TRUE.equals(enrollment.getSessionCompleted())
                     );
 
             if (existingEnrollmentSameSchedule) {
                 logger.warn("⚠️ Active enrollment already exists for user {} in class {} and schedule {}",
-                        userId, context.getClassId(), context.getScheduleId());
+                        userId, classId, scheduleId);
                 return;
             }
 
-            // ======================================================
-            // 4. Create Enrollment
-            // ======================================================
+            // 3. Create enrollment
             ClassEnrollment enrollment =
                     new ClassEnrollment(transaction.getUser(), classEntity, schedule, transaction);
             enrollment.setSessionCompleted(false);
 
             logger.info("💾 Saving class enrollment from stored context...");
 
-            // ======================================================
-            // 5. Update Schedule Enrollment Count
-            // ======================================================
-            int currentEnrolledCount =
-                    schedule.getEnrolledCount() != null ? schedule.getEnrolledCount() : 0;
+            // 4. Update schedule enrolled count (null-safe)
+            Integer enrolledCountObj = schedule.getEnrolledCount();
+            int currentEnrolledCount = (enrolledCountObj != null) ? enrolledCountObj : 0;
 
             schedule.setEnrolledCount(currentEnrolledCount + 1);
             logger.info("📊 Updating schedule enrollment count from {} to {} (stored context)",
@@ -550,24 +560,21 @@ public class TransactionService {
             logger.info("✅ Class enrollment created with ID: {}", savedEnrollment.getId());
             logger.info("✅ Schedule enrollment count updated to: {}", schedule.getEnrolledCount());
 
-            // ======================================================
-            // 6. Clean up stored context
-            // ======================================================
+            // 5. Clean up stored context
             transactionContexts.remove(transaction.getId());
             logger.info("🧹 Cleaned up stored context for transaction: {}", transaction.getId());
 
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("❌ CRITICAL ERROR creating class enrollment from context for transaction: {}",
                     transaction.getId(), e);
             throw new RuntimeException("Failed to create class enrollment: " + e.getMessage(), e);
         }
     }
 
-    // Fallback method
     private void determineAndCreateDomainRecordsFromCode(Transaction transaction) {
         if (transaction.getTransactionCode() != null) {
             String code = transaction.getTransactionCode().toUpperCase();
-            
+
             if (code.contains("SIL") || code.contains("GOL") || code.contains("PLA") || code.contains("MEM")) {
                 logger.info("📋 This appears to be a membership transaction");
                 createMembershipForCompletedTransaction(transaction);
@@ -579,11 +586,10 @@ public class TransactionService {
         }
     }
 
-    // Create membership for completed transaction (fallback)
     private void createMembershipForCompletedTransaction(Transaction transaction) {
         try {
             logger.info("🔄 Creating membership for completed transaction (PENDING)...");
-            
+
             Membership membership = new Membership();
             membership.setUser(transaction.getUser());
             membership.setTransaction(transaction);
@@ -591,7 +597,6 @@ public class TransactionService {
             String membershipType = determineMembershipType(transaction);
             membership.setMembershipType(membershipType);
 
-            // ❗ Pending
             membership.setMembershipActivatedDate(null);
             membership.setMembershipExpiryDate(null);
             membership.setTransactionCode(transaction.getTransactionCode());
@@ -600,51 +605,81 @@ public class TransactionService {
             logger.info("✅ Pending membership created with ID: {}, Type: {}",
                     savedMembership.getId(), savedMembership.getMembershipType());
 
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("❌ Error creating membership for transaction: {}", transaction.getId(), e);
             throw new RuntimeException("Failed to create membership: " + e.getMessage(), e);
         }
     }
 
-    // Determine membership type from transaction
     private String determineMembershipType(Transaction transaction) {
         if (transaction.getTransactionCode() != null) {
             String code = transaction.getTransactionCode().toUpperCase();
             if (code.contains("SIL")) return "SILVER";
-            if (code.contains("GOL")) return "GOLD"; 
+            if (code.contains("GOL")) return "GOLD";
             if (code.contains("PLA")) return "PLATINUM";
             if (code.contains("MEM")) return "MEMBERSHIP";
         }
         return "BASIC";
     }
 
-    // Transaction context class
+    // ==============================
+    // TRANSACTION CONTEXT CLASS
+    // ==============================
+
     private static class TransactionContext {
         private String membershipType;
         private Long scheduleId;
         private Long classId;
         private String className;
-        
-        public String getMembershipType() { return membershipType; }
-        public void setMembershipType(String membershipType) { this.membershipType = membershipType; }
-        
-        public Long getScheduleId() { return scheduleId; }
-        public void setScheduleId(Long scheduleId) { this.scheduleId = scheduleId; }
-        
-        public Long getClassId() { return classId; }
-        public void setClassId(Long classId) { this.classId = classId; }
-        
-        public String getClassName() { return className; }
-        public void setClassName(String className) { this.className = className; }
-        
+
+        public String getMembershipType() {
+            return membershipType;
+        }
+
+        public void setMembershipType(String membershipType) {
+            this.membershipType = membershipType;
+        }
+
+        public Long getScheduleId() {
+            return scheduleId;
+        }
+
+        public void setScheduleId(Long scheduleId) {
+            this.scheduleId = scheduleId;
+        }
+
+        public Long getClassId() {
+            return classId;
+        }
+
+        public void setClassId(Long classId) {
+            this.classId = classId;
+        }
+
+        public String getClassName() {
+            return className;
+        }
+
+        public void setClassName(String className) {
+            this.className = className;
+        }
+
         @Override
         public String toString() {
-            return String.format("TransactionContext{membershipType='%s', scheduleId=%d, classId=%d, className='%s'}", 
-                               membershipType, scheduleId, classId, className);
+            return String.format(
+                    "TransactionContext{membershipType='%s', scheduleId=%s, classId=%s, className='%s'}",
+                    membershipType,
+                    scheduleId,
+                    classId,
+                    className
+            );
         }
     }
 
-    // Public methods remain the same...
+    // ==============================
+    // PUBLIC API METHODS
+    // ==============================
+
     public List<Transaction> getAllTransactions() {
         return transactionRepository.findAll();
     }
@@ -682,9 +717,9 @@ public class TransactionService {
         }
         List<ClassEnrollment> enrollments = classEnrollmentRepository.findByUserIdAndClassEntityId(userId, classId);
         return enrollments.stream()
-                .anyMatch(enrollment -> 
-                    enrollment.isPaid() && 
-                    !Boolean.TRUE.equals(enrollment.getSessionCompleted())
+                .anyMatch(enrollment ->
+                        enrollment.isPaid() &&
+                                !Boolean.TRUE.equals(enrollment.getSessionCompleted())
                 );
     }
 
@@ -703,14 +738,14 @@ public class TransactionService {
         }
         return classEnrollmentRepository.findByUserId(userId);
     }
-    
+
     public List<Transaction> getTransactionsByPaymentStatus(PaymentStatus status) {
         if (status == null) {
             throw new IllegalArgumentException("Payment status cannot be null");
         }
         return transactionRepository.findByPaymentStatus(status);
     }
-    
+
     public Membership createMembershipDirectly(User user, String membershipType, int monthsDuration) {
         if (user == null) {
             throw new IllegalArgumentException("User cannot be null");
@@ -721,7 +756,7 @@ public class TransactionService {
         if (monthsDuration <= 0) {
             throw new IllegalArgumentException("Months duration must be positive");
         }
-        
+
         Transaction transaction = new Transaction();
         transaction.setUser(user);
         transaction.setTotalAmount(0.0);
@@ -730,83 +765,85 @@ public class TransactionService {
         transaction.setPaymentStatus(PaymentStatus.COMPLETED);
         transaction.setPaymentDate(LocalDateTime.now());
         transaction.setTransactionCode(generateTransactionCode(membershipType));
-        
+
         Transaction savedTransaction = transactionRepository.save(transaction);
-        
+
         Membership membership = new Membership();
         membership.setUser(user);
         membership.setTransaction(savedTransaction);
         membership.setMembershipType(membershipType);
         membership.setMembershipActivatedDate(LocalDateTime.now());
         membership.setMembershipExpiryDate(LocalDateTime.now().plusMonths(monthsDuration));
-        
+
         return membershipRepository.save(membership);
     }
 
-    // Debug method
+    // ==============================
+    // DEBUG ENDPOINTS (inside service)
+    // ==============================
+
     @PostMapping("/debug-transaction")
     public ResponseEntity<?> debugTransaction(@RequestParam Long transactionId) {
         try {
             logger.info("=== DEBUG TRANSACTION ===");
-            
+
             if (transactionId == null) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Transaction ID cannot be null"));
             }
-            
-            // Get transaction
+
             Transaction transaction = transactionRepository.findById(transactionId)
                     .orElseThrow(() -> new RuntimeException("Transaction not found"));
-            
+
             logger.info("Transaction: {}", transaction);
             logger.info("Transaction Code: {}", transaction.getTransactionCode());
             logger.info("Payment Status: {}", transaction.getPaymentStatus());
-            
-            // Check stored context
+
             TransactionContext context = transactionContexts.get(transactionId);
             logger.info("Stored Context: {}", context);
-            
-            
-            // Check if domain records exist
+
             boolean membershipExists = membershipRepository.findByTransactionId(transactionId).isPresent();
             boolean enrollmentExists = classEnrollmentRepository.findByTransactionId(transactionId).isPresent();
-            
+
             logger.info("Membership exists: {}", membershipExists);
             logger.info("Enrollment exists: {}", enrollmentExists);
-            
+
             return ResponseEntity.ok(Map.of(
-                "transaction", transaction,
-                "storedContext", context,
-                "membershipExists", membershipExists,
-                "enrollmentExists", enrollmentExists
+                    "transaction", transaction,
+                    "storedContext", context,
+                    "membershipExists", membershipExists,
+                    "enrollmentExists", enrollmentExists
             ));
-            
-        } catch (Exception e) {
+
+        } catch (RuntimeException e) {
             logger.error("Error in debug transaction for ID: {}", transactionId, e);
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
 
     @GetMapping("/debug-transaction-context/{transactionId}")
-    public ResponseEntity<?> debugTransactionContext(@PathVariable Long transactionId) {
+    public ResponseEntity<?> debugTransactionContext(@PathVariable long transactionId) {
         try {
             logger.info("=== DEBUG TRANSACTION CONTEXT ===");
-            
-            // Check stored context
-            TransactionContext context = transactionContexts.get(transactionId);
-            logger.info("Stored Context for ID {}: {}", transactionId, context);
-            
-            // Check transaction details
-            Transaction transaction = transactionRepository.findById(transactionId)
+
+            Long key = transactionId; // autobox for map key
+
+            TransactionContext context = transactionContexts.get(key);
+            logger.info("Stored Context for ID {}: {}", key, context);
+
+            Transaction transaction = transactionRepository.findById(key)
                     .orElse(null);
             logger.info("Transaction: {}", transaction);
-            
+
+            String className = (context != null ? context.getClassName() : null);
+
             return ResponseEntity.ok(Map.of(
-                "transactionId", transactionId,
-                "storedContext", context != null ? context.toString() : "NULL",
-                "transaction", transaction
+                    "transactionId", key,
+                    "storedContext", context != null ? context.toString() : "NULL",
+                    "className", className,
+                    "transaction", transaction
             ));
-            
-        } catch (Exception e) {
+
+        } catch (RuntimeException e) {
             logger.error("Error debugging transaction context: {}", transactionId, e);
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
