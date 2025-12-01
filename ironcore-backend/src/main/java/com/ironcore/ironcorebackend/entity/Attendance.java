@@ -38,9 +38,6 @@ public class Attendance {
     @Column(name = "membership_type", length = 50)
     private String membershipType;
     
-    @Column(name = "notes", length = 500)
-    private String notes;
-    
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
     
@@ -87,9 +84,6 @@ public class Attendance {
     public void setMembershipType(String membershipType) { 
         this.membershipType = membershipType; 
     }
-    
-    public String getNotes() { return notes; }
-    public void setNotes(String notes) { this.notes = notes; }
     
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

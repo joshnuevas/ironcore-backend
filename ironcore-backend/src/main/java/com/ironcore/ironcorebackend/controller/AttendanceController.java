@@ -153,12 +153,10 @@ public class AttendanceController {
                     memberData.put("attendanceId", attendance.getId());
                     memberData.put("checkedIn", attendance.getCheckedIn());
                     memberData.put("checkInTime", attendance.getCheckInTime());
-                    memberData.put("notes", attendance.getNotes());
                 } else {
                     memberData.put("attendanceId", null);
                     memberData.put("checkedIn", false);
                     memberData.put("checkInTime", null);
-                    memberData.put("notes", null);
                 }
 
                 members.add(memberData);
@@ -194,10 +192,6 @@ public class AttendanceController {
             long userId = Long.parseLong(request.get("userId").toString());
             String dateStr = request.get("date").toString();
             Boolean checkedIn = Boolean.valueOf(request.get("checkedIn").toString());
-            String notes = null;
-            if (request.containsKey("notes") && request.get("notes") != null) {
-                notes = request.get("notes").toString();
-            }
 
             LocalDate attendanceDate = LocalDate.parse(dateStr);
             Long adminIdObj = (Long) session.getAttribute("userId");
@@ -251,9 +245,6 @@ public class AttendanceController {
                 attendance.setCheckedIn(checkedIn);
                 attendance.setCheckInTime(checkedIn ? LocalDateTime.now() : null);
                 attendance.setCheckedByAdmin(admin);
-                if (notes != null) {
-                    attendance.setNotes(notes);
-                }
 
                 System.out.println("Updating existing attendance record: " + attendance.getId());
             } else {
@@ -265,9 +256,6 @@ public class AttendanceController {
                 attendance.setCheckInTime(checkedIn ? LocalDateTime.now() : null);
                 attendance.setCheckedByAdmin(admin);
                 attendance.setMembershipType(activeMembership.getMembershipType());
-                if (notes != null) {
-                    attendance.setNotes(notes);
-                }
 
                 System.out.println("Creating new attendance record");
             }
@@ -337,7 +325,6 @@ public class AttendanceController {
                 response.put("attendanceId", attendance.getId());
                 response.put("checkedIn", attendance.getCheckedIn());
                 response.put("checkInTime", attendance.getCheckInTime());
-                response.put("notes", attendance.getNotes());
             } else {
                 response.put("exists", false);
             }
@@ -404,7 +391,6 @@ public class AttendanceController {
                         record.put("checkedIn", a.getCheckedIn());
                         record.put("checkInTime", a.getCheckInTime());
                         record.put("membershipType", a.getMembershipType());
-                        record.put("notes", a.getNotes());
                         if (a.getCheckedByAdmin() != null) {
                             record.put("checkedByAdmin", a.getCheckedByAdmin().getUsername());
                         }
@@ -508,7 +494,6 @@ public class AttendanceController {
                             record.put("checkedIn", a.getCheckedIn());
                             record.put("checkInTime", a.getCheckInTime());
                             record.put("membershipType", a.getMembershipType());
-                            record.put("notes", a.getNotes());
                             if (a.getCheckedByAdmin() != null) {
                                 record.put("checkedByAdmin", a.getCheckedByAdmin().getUsername());
                             }
