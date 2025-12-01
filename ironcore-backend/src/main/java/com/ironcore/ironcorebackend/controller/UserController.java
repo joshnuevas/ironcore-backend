@@ -15,7 +15,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Objects; // <<< IMPORTANT
+import java.util.Objects;
 
 @CrossOrigin(origins = "http://localhost:3000", allowCredentials = "true")
 @RestController
@@ -25,28 +25,25 @@ public class UserController {
     @Autowired
     private UserRepository userRepository;
 
-    // Get current logged-in user
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(HttpSession session) {
         Long userId = (Long) session.getAttribute("userId");
 
         if (userId == null) {
-            Map<String, String> errorResponse = new HashMap<>();
-            errorResponse.put("message", "Not authenticated. Please log in.");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("message", "Not authenticated. Please log in."));
         }
 
         Optional<User> userOptional = userRepository.findById(userId);
 
         if (userOptional.isEmpty()) {
-            Map<String, String> errorResponse = new HashMap<>();
-            errorResponse.put("message", "User not found");
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("message", "User not found"));
         }
 
         User user = userOptional.get();
-
         Map<String, Object> response = new HashMap<>();
+
         response.put("id", user.getId());
         response.put("username", user.getUsername());
         response.put("email", user.getEmail());
@@ -55,8 +52,7 @@ public class UserController {
         if (user.getProfilePicture() != null && user.getProfilePicture().length > 0) {
             String base64Image = Base64.getEncoder().encodeToString(user.getProfilePicture());
             String mimeType = user.getProfilePictureMimeType() != null
-                    ? user.getProfilePictureMimeType()
-                    : "image/jpeg";
+                    ? user.getProfilePictureMimeType() : "image/jpeg";
             response.put("profilePicture", "data:" + mimeType + ";base64," + base64Image);
         } else {
             response.put("profilePicture", "");
@@ -67,169 +63,143 @@ public class UserController {
 
     @GetMapping("/{userId}")
     public ResponseEntity<?> getUser(@PathVariable long userId) {
+
         Optional<User> userOptional = userRepository.findById(userId);
 
-        if (userOptional.isPresent()) {
-            User user = userOptional.get();
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("username", user.getUsername());
-            response.put("email", user.getEmail());
-            response.put("isAdmin", Boolean.TRUE.equals(user.getIsAdmin()));
-
-            if (user.getProfilePicture() != null && user.getProfilePicture().length > 0) {
-                String base64Image = Base64.getEncoder().encodeToString(user.getProfilePicture());
-                String mimeType = user.getProfilePictureMimeType() != null
-                        ? user.getProfilePictureMimeType()
-                        : "image/jpeg";
-                response.put("profilePicture", "data:" + mimeType + ";base64," + base64Image);
-            } else {
-                response.put("profilePicture", "");
-            }
-
-            return ResponseEntity.ok(response);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("message", "User not found"));
         }
 
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(Map.of("message", "User not found"));
+        User user = userOptional.get();
+        Map<String, Object> response = new HashMap<>();
+
+        response.put("username", user.getUsername());
+        response.put("email", user.getEmail());
+        response.put("isAdmin", Boolean.TRUE.equals(user.getIsAdmin()));
+
+        if (user.getProfilePicture() != null && user.getProfilePicture().length > 0) {
+            String base64Image = Base64.getEncoder().encodeToString(user.getProfilePicture());
+            String mimeType = user.getProfilePictureMimeType() != null
+                    ? user.getProfilePictureMimeType() : "image/jpeg";
+            response.put("profilePicture", "data:" + mimeType + ";base64," + base64Image);
+        } else {
+            response.put("profilePicture", "");
+        }
+
+        return ResponseEntity.ok(response);
     }
 
     @PutMapping("/{userId}")
-    public ResponseEntity<?> updateUser(
-            @PathVariable long userId,
-            @RequestBody Map<String, String> updates) {
+    public ResponseEntity<?> updateUser(@PathVariable long userId,
+                                        @RequestBody Map<String, String> updates) {
 
-        // orElseThrow guarantees non-null at runtime
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
         if (updates.containsKey("username")) {
             String newUsername = updates.get("username").trim();
-
-            if (newUsername.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("message", "Username cannot be empty"));
-            }
+            if (newUsername.isEmpty()) return ResponseEntity.badRequest().body(Map.of("message", "Username cannot be empty"));
 
             User existingUser = userRepository.findByUsername(newUsername);
-            if (existingUser != null && !existingUser.getId().equals(userId)) {
-                return ResponseEntity.status(HttpStatus.CONFLICT)
-                        .body(Map.of("message", "Username is already taken by another user"));
-            }
+            if (existingUser != null && !existingUser.getId().equals(userId))
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", "Username already taken"));
 
             user.setUsername(newUsername);
         }
 
         if (updates.containsKey("email")) {
             String newEmail = updates.get("email").trim();
+            if (newEmail.isEmpty()) return ResponseEntity.badRequest().body(Map.of("message", "Email cannot be empty"));
 
-            if (newEmail.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("message", "Email cannot be empty"));
-            }
+            if (!newEmail.matches("^[A-Za-z0-9+_.-]+@(.+)$"))
+                return ResponseEntity.badRequest().body(Map.of("message", "Invalid email format"));
 
-            if (!newEmail.matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("message", "Invalid email format"));
-            }
-
-            User existingUser = userRepository.findByEmail(newEmail);
-            if (existingUser != null && !existingUser.getId().equals(userId)) {
-                return ResponseEntity.status(HttpStatus.CONFLICT)
-                        .body(Map.of("message", "Email is already taken by another user"));
-            }
+            User existing = userRepository.findByEmail(newEmail);
+            if (existing != null && !existing.getId().equals(userId))
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", "Email already taken"));
 
             user.setEmail(newEmail);
         }
 
-        // ⭐ Fix: make the analyzer see this as @NonNull User
         userRepository.save(Objects.requireNonNull(user));
+        return ResponseEntity.ok(Map.of("message", "Profile updated successfully"));
+    }
 
-        Map<String, String> response = new HashMap<>();
-        response.put("username", user.getUsername());
-        response.put("email", user.getEmail());
-        response.put("message", "Profile updated successfully");
+    @PutMapping("/{userId}/change-password")
+    public ResponseEntity<?> changePassword(@PathVariable long userId,
+                                            @RequestBody Map<String, String> body) {
 
-        return ResponseEntity.ok(response);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+        String current = body.getOrDefault("currentPassword", "").trim();
+        String next = body.getOrDefault("newPassword", "").trim();
+        String confirm = body.getOrDefault("confirmPassword", "").trim();
+
+        if (current.isEmpty() || next.isEmpty() || confirm.isEmpty())
+            return ResponseEntity.badRequest().body(Map.of("message", "All fields required"));
+
+        if (!current.equals(user.getPassword()))
+            return ResponseEntity.badRequest().body(Map.of("message", "Current password incorrect"));
+
+        if (!next.equals(confirm))
+            return ResponseEntity.badRequest().body(Map.of("message", "Passwords do not match"));
+
+        if (next.equals(current))
+            return ResponseEntity.badRequest().body(Map.of("message", "New password must be different"));
+
+        user.setPassword(next);
+        userRepository.save(user);
+
+        return ResponseEntity.ok(Map.of("message", "Password updated successfully"));
     }
 
     @PostMapping("/{userId}/profile-picture")
-    public ResponseEntity<?> uploadProfilePicture(
-            @PathVariable long userId,
-            @RequestParam("profilePicture") MultipartFile file) {
+    public ResponseEntity<?> uploadProfilePicture(@PathVariable long userId,
+                                                  @RequestParam("profilePicture") MultipartFile file) {
 
-        Optional<User> userOptional = userRepository.findById(userId);
+        Optional<User> optional = userRepository.findById(userId);
 
-        if (userOptional.isEmpty()) {
-            Map<String, String> errorResponse = new HashMap<>();
-            errorResponse.put("message", "User not found");
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
-        }
+        if (optional.isEmpty()) return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of("message", "User not found"));
 
-        if (file.isEmpty()) {
-            Map<String, String> errorResponse = new HashMap<>();
-            errorResponse.put("message", "Please select a file to upload");
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
-        }
+        if (file.isEmpty())
+            return ResponseEntity.badRequest().body(Map.of("message", "No file uploaded"));
 
-        String contentType = file.getContentType();
-        if (contentType == null || !contentType.startsWith("image/")) {
-            Map<String, String> errorResponse = new HashMap<>();
-            errorResponse.put("message", "Only image files are allowed");
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
-        }
+        String type = file.getContentType();
 
-        if (file.getSize() > 5 * 1024 * 1024) {
-            Map<String, String> errorResponse = new HashMap<>();
-            errorResponse.put("message", "File size should not exceed 5MB");
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
-        }
+        if (type == null || !type.startsWith("image/"))
+            return ResponseEntity.badRequest().body(Map.of("message", "Invalid file type"));
 
         try {
-            byte[] imageBytes = file.getBytes();
+            byte[] bytes = file.getBytes();
+            User user = optional.get();
 
-            User user = userOptional.get();
-            user.setProfilePicture(imageBytes);
-            user.setProfilePictureMimeType(contentType);
+            user.setProfilePicture(bytes);
+            user.setProfilePictureMimeType(type);
+            userRepository.save(user);
 
-            // Also wrapped with requireNonNull for consistency
-            userRepository.save(Objects.requireNonNull(user));
-
-            String base64Image = Base64.getEncoder().encodeToString(imageBytes);
-            String dataUrl = "data:" + contentType + ";base64," + base64Image;
-
-            Map<String, String> response = new HashMap<>();
-            response.put("message", "Profile picture uploaded successfully");
-            response.put("profilePictureUrl", dataUrl);
-
-            return ResponseEntity.ok(response);
-
+            return ResponseEntity.ok(Map.of("message", "Image updated"));
         } catch (IOException e) {
-            Map<String, String> errorResponse = new HashMap<>();
-            errorResponse.put("message", "Failed to upload file: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("message", "Upload failed"));
         }
     }
 
     @DeleteMapping("/{userId}/profile-picture")
     public ResponseEntity<?> deleteProfilePicture(@PathVariable long userId) {
-        Optional<User> userOptional = userRepository.findById(userId);
 
-        if (userOptional.isEmpty()) {
-            Map<String, String> errorResponse = new HashMap<>();
-            errorResponse.put("message", "User not found");
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
-        }
+        Optional<User> optional = userRepository.findById(userId);
 
-        User user = userOptional.get();
+        if (optional.isEmpty())
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "User not found"));
+
+        User user = optional.get();
         user.setProfilePicture(null);
         user.setProfilePictureMimeType(null);
+        userRepository.save(user);
 
-        userRepository.save(Objects.requireNonNull(user));
-
-        Map<String, String> response = new HashMap<>();
-        response.put("message", "Profile picture deleted successfully");
-
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(Map.of("message", "Profile picture removed"));
     }
 }

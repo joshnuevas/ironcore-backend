@@ -6,7 +6,6 @@ import com.ironcore.ironcorebackend.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -17,32 +16,28 @@ public class RegisterController {
     @Autowired
     private UserRepository userRepository;
 
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
     @PostMapping("/register")
     public ResponseEntity<String> registerUser(@RequestBody RegisterRequest request) {
-        // Check if email already exists
+
         if (userRepository.existsByEmail(request.getEmail())) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body("Email already exists!");
+            return ResponseEntity.status(HttpStatus.CONFLICT).body("Email already exists!");
         }
 
-        // Check if username already exists (optional but recommended)
         if (userRepository.existsByUsername(request.getUsername())) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body("Username already taken!");
+            return ResponseEntity.status(HttpStatus.CONFLICT).body("Username already taken!");
         }
 
-        // Create new user with hashed password
         User user = new User();
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
-        user.setPassword(passwordEncoder.encode(request.getPassword())); // Hash the password
+        user.setPassword(request.getPassword());
+
+        if (user.getIsAdmin() == null) {
+            user.setIsAdmin(false);
+        }
 
         userRepository.save(user);
-        
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body("User registered successfully!");
+
+        return ResponseEntity.status(HttpStatus.CREATED).body("User registered successfully!");
     }
 }
