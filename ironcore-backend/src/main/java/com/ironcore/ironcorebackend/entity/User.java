@@ -19,12 +19,9 @@ public class User {
     @Column(name = "password", nullable = false)
     private String password;
 
-    // NEW FIELD FOR ADMIN STATUS
-    // Explicitly map Java camelCase to database snake_case
     @Column(name = "is_admin", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
     private Boolean isAdmin = false;
 
-    // PROFILE PICTURE FIELDS
     @Lob
     @Column(name = "profile_picture", columnDefinition = "LONGBLOB")
     private byte[] profilePicture;
@@ -32,19 +29,16 @@ public class User {
     @Column(name = "profile_picture_mime_type", length = 50)
     private String profilePictureMimeType;
 
-    // Constructors
+    @Column(name = "security_question")
+    private String securityQuestion;
+
+    @Column(name = "security_answer")
+    private String securityAnswer;
+
     public User() {
         this.isAdmin = false;
     }
 
-    public User(String username, String email, String password) {
-        this.username = username;
-        this.email = email;
-        this.password = password;
-        this.isAdmin = false;
-    }
-
-    // Getters and Setters
     public Long getId() {
         return id;
     }
@@ -81,8 +75,8 @@ public class User {
         return isAdmin;
     }
 
-    public void setIsAdmin(Boolean isAdmin) {
-        this.isAdmin = isAdmin;
+    public void setIsAdmin(Boolean admin) {
+        isAdmin = admin;
     }
 
     public byte[] getProfilePicture() {
@@ -99,5 +93,21 @@ public class User {
 
     public void setProfilePictureMimeType(String profilePictureMimeType) {
         this.profilePictureMimeType = profilePictureMimeType;
+    }
+
+    public String getSecurityQuestion() {
+        return securityQuestion;
+    }
+
+    public void setSecurityQuestion(String securityQuestion) {
+        this.securityQuestion = securityQuestion;
+    }
+
+    public String getSecurityAnswer() {
+        return securityAnswer;
+    }
+
+    public void setSecurityAnswer(String securityAnswer) {
+        this.securityAnswer = securityAnswer;
     }
 }

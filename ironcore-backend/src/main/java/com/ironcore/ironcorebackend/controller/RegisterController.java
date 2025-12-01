@@ -18,26 +18,27 @@ public class RegisterController {
 
     @PostMapping("/register")
     public ResponseEntity<String> registerUser(@RequestBody RegisterRequest request) {
-
         if (userRepository.existsByEmail(request.getEmail())) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body("Email already exists!");
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body("Email already exists!");
         }
 
         if (userRepository.existsByUsername(request.getUsername())) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body("Username already taken!");
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body("Username already taken!");
         }
 
         User user = new User();
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
-        user.setPassword(request.getPassword());
 
-        if (user.getIsAdmin() == null) {
-            user.setIsAdmin(false);
-        }
+        user.setPassword(request.getPassword());
+        user.setSecurityQuestion(request.getSecurityQuestion());
+        user.setSecurityAnswer(request.getSecurityAnswer());
 
         userRepository.save(user);
 
-        return ResponseEntity.status(HttpStatus.CREATED).body("User registered successfully!");
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body("User registered successfully!");
     }
 }

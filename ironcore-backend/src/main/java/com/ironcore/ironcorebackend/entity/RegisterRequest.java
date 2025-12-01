@@ -4,11 +4,12 @@ public class RegisterRequest {
     private String username;
     private String email;
     private String password;
+    private String securityQuestion;
+    private String securityAnswer;
 
-    // --- Constructors ---
-    public RegisterRequest() {}
+    public RegisterRequest() {
+    }
 
-    // --- Getters and Setters ---
     public String getUsername() {
         return username;
     }
@@ -31,5 +32,21 @@ public class RegisterRequest {
 
     public void setPassword(String password) {
         this.password = password;
+    }
+
+    public String getSecurityQuestion() {
+        return securityQuestion;
+    }
+
+    public void setSecurityQuestion(String securityQuestion) {
+        this.securityQuestion = securityQuestion;
+    }
+
+    public String getSecurityAnswer() {
+        return securityAnswer;
+    }
+
+    public void setSecurityAnswer(String securityAnswer) {
+        this.securityAnswer = securityAnswer;
     }
 }
