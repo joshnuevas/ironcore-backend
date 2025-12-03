@@ -15,11 +15,10 @@ public class Membership {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @ManyToOne
-    @JoinColumn(name = "transaction_id", nullable = false)
+    @OneToOne
+    @JoinColumn(name = "transaction_id", nullable = false, unique = true)
     private Transaction transaction;
 
-    // e.g. SESSION, SILVER, GOLD, PLATINUM
     @Column(name = "membership_type", nullable = false)
     private String membershipType;
 

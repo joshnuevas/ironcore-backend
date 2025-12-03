@@ -21,16 +21,14 @@ public class ClassEntity {
     private String duration;
     private double price;
 
-    // Extra info to fully power ClassDetailsPage from DB
-    private String intensity;          // e.g. "High", "Medium"
-    private Integer maxParticipants;   // e.g. 15
-    private String location;           // e.g. "Main Studio Floor"
-    private String cancelPolicy;       // e.g. "You can cancel up to 2 hours before..."
-    private String imageUrl;           // e.g. "/images/hiit.png"
+    private String intensity;
+    private Integer maxParticipants;
+    private String location;
+    private String cancelPolicy;
+    private String imageUrl;
 
-    // Link to Trainer
-    @ManyToOne
-    @JoinColumn(name = "trainer_id")
+    @OneToOne
+    @JoinColumn(name = "trainer_id", unique = true, nullable = false)
     private Trainer trainer;
 
     @OneToMany(mappedBy = "classEntity")
@@ -41,7 +39,6 @@ public class ClassEntity {
     @JsonIgnore
     private List<ClassEnrollment> enrollments;
 
-    // Renamed Element Collections (no more generic "text" column)
     @ElementCollection
     @CollectionTable(name = "class_expectations", joinColumns = @JoinColumn(name = "class_id"))
     @Column(name = "expectation_detail")

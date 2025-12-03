@@ -1,5 +1,6 @@
 package com.ironcore.ironcorebackend.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.util.List;
 
@@ -37,6 +38,11 @@ public class Trainer {
     @ElementCollection
     @CollectionTable(name = "trainer_specializations", joinColumns = @JoinColumn(name = "trainer_id"))
     private List<String> specializations;
+
+    // 🔗 1:1 with ClassEntity (back-reference)
+    @OneToOne(mappedBy = "trainer")
+    @JsonIgnore       // avoid infinite JSON recursion
+    private ClassEntity classEntity;
 
     // ============================
     // Constructors
@@ -113,4 +119,7 @@ public class Trainer {
 
     public List<String> getSpecializations() { return specializations; }
     public void setSpecializations(List<String> specializations) { this.specializations = specializations; }
+
+    public ClassEntity getClassEntity() { return classEntity; }
+    public void setClassEntity(ClassEntity classEntity) { this.classEntity = classEntity; }
 }
