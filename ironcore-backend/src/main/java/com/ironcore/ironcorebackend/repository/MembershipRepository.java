@@ -14,18 +14,20 @@ import java.util.Optional;
 @Repository
 public interface MembershipRepository extends JpaRepository<Membership, Long> {
 
-    // Custom query to find by transaction code via relationship
+    // Find membership by transaction code (via relationship)
     @Query("SELECT m FROM Membership m WHERE m.transaction.transactionCode = :transactionCode")
     Optional<Membership> findByTransactionCode(@Param("transactionCode") String transactionCode);
 
+    // All memberships for a user
     List<Membership> findByUserId(Long userId);
 
-    // Custom query to find by payment status via relationship
+    // By payment status via transaction
     @Query("SELECT m FROM Membership m WHERE m.transaction.paymentStatus = :paymentStatus")
     List<Membership> findByPaymentStatus(@Param("paymentStatus") PaymentStatus paymentStatus);
 
-    // FIXED: Use new field names
-    @Query("SELECT m FROM Membership m WHERE m.user.id = :userId " +
+    // Active memberships by user (time-based only)
+    @Query("SELECT m FROM Membership m " +
+           "WHERE m.user.id = :userId " +
            "AND m.membershipActivatedDate IS NOT NULL " +
            "AND m.membershipExpiryDate > :currentDate")
     List<Membership> findActiveMembershipsByUser(
@@ -33,18 +35,43 @@ public interface MembershipRepository extends JpaRepository<Membership, Long> {
         @Param("currentDate") LocalDateTime currentDate
     );
 
-    // ADD THESE METHODS:
+    // Find membership linked to a specific transaction
     Optional<Membership> findByTransactionId(Long transactionId);
-    
-    // FIXED: Use new field name
+
+    // All memberships that have not yet expired (any user)
     @Query("SELECT m FROM Membership m WHERE m.membershipExpiryDate > :now")
     List<Membership> findActiveMemberships(@Param("now") LocalDateTime now);
-    
-    // FIXED: Use new field name
-    @Query("SELECT m FROM Membership m WHERE m.user.id = :userId AND m.membershipExpiryDate > :date")
-    List<Membership> findByUserIdAndExpiryDateAfterQuery(@Param("userId") Long userId, @Param("date") LocalDateTime date);
-    
-    // FIXED: Use new field name
-    @Query("SELECT m FROM Membership m WHERE m.membershipExpiryDate > :now AND m.transaction.paymentStatus = com.ironcore.ironcorebackend.entity.PaymentStatus.COMPLETED")
+
+    // All memberships for a user that are still valid (time-based)
+    @Query("SELECT m FROM Membership m " +
+           "WHERE m.user.id = :userId " +
+           "AND m.membershipExpiryDate > :date")
+    List<Membership> findByUserIdAndExpiryDateAfterQuery(
+        @Param("userId") Long userId,
+        @Param("date") LocalDateTime date
+    );
+
+    // All active, paid memberships (any user)
+    @Query("SELECT m FROM Membership m " +
+           "WHERE m.membershipExpiryDate > :now " +
+           "AND m.transaction.paymentStatus = com.ironcore.ironcorebackend.entity.PaymentStatus.COMPLETED")
     List<Membership> findActivePaidMemberships(@Param("now") LocalDateTime now);
+
+    // ✅ Single active, paid membership for a specific user
+    @Query("SELECT m FROM Membership m " +
+           "WHERE m.user.id = :userId " +
+           "AND m.membershipExpiryDate > :now " +
+           "AND m.transaction.paymentStatus = com.ironcore.ironcorebackend.entity.PaymentStatus.COMPLETED")
+    Optional<Membership> findActivePaidMembershipByUser(
+        @Param("userId") Long userId,
+        @Param("now") LocalDateTime now
+    );
+
+    // ✅ Single pending membership for a specific user (waiting for admin)
+    @Query("SELECT m FROM Membership m " +
+           "WHERE m.user.id = :userId " +
+           "AND m.transaction.paymentStatus = com.ironcore.ironcorebackend.entity.PaymentStatus.PENDING")
+    Optional<Membership> findPendingMembershipByUser(
+        @Param("userId") Long userId
+    );
 }

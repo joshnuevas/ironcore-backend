@@ -19,23 +19,22 @@ public class Membership {
     @JoinColumn(name = "transaction_id", nullable = false)
     private Transaction transaction;
 
-    // Membership-specific data only
+    // e.g. SESSION, SILVER, GOLD, PLATINUM
+    @Column(name = "membership_type", nullable = false)
     private String membershipType;
 
-    // KEEP only transaction_code
     @Column(name = "transaction_code")
     private String transactionCode;
 
-    // ADD these date fields since we removed the duplicates
     @Column(name = "membership_activated_date")
     private LocalDateTime membershipActivatedDate;
-    
+
     @Column(name = "membership_expiry_date")
     private LocalDateTime membershipExpiryDate;
 
-    public Membership() {}
+    public Membership() {
+    }
 
-    // Updated constructor
     public Membership(User user, Transaction transaction, String membershipType) {
         this.user = user;
         this.transaction = transaction;
@@ -45,32 +44,52 @@ public class Membership {
         this.transactionCode = transaction != null ? transaction.getTransactionCode() : null;
     }
 
-    // Helper methods
+    // ✅ Helper: is membership currently active (time-based)
     public boolean isCurrentlyActive() {
+        if (membershipActivatedDate == null || membershipExpiryDate == null) {
+            return false;
+        }
         LocalDateTime now = LocalDateTime.now();
-        return membershipActivatedDate != null && 
-               membershipExpiryDate != null && 
-               now.isAfter(membershipActivatedDate) && 
-               now.isBefore(membershipExpiryDate);
+        // active if now >= activated AND now < expiry
+        return !now.isBefore(membershipActivatedDate) && now.isBefore(membershipExpiryDate);
     }
 
     public boolean isExpired() {
+        if (membershipExpiryDate == null) {
+            return false;
+        }
         LocalDateTime now = LocalDateTime.now();
-        return membershipExpiryDate != null && now.isAfter(membershipExpiryDate);
+        return now.isAfter(membershipExpiryDate);
     }
 
-    // Calculate expiry date based on membership type
+    // ✅ Calculate expiry based on your plan names
     private LocalDateTime calculateExpiryDate(String membershipType) {
         LocalDateTime now = LocalDateTime.now();
+
+        if (membershipType == null) {
+            return now.plusMonths(1); // safe default
+        }
+
         switch (membershipType.toUpperCase()) {
+            case "SESSION":
+                // 1-day pass
+                return now.plusDays(1);
+
+            case "SILVER":
+            case "GOLD":
+            case "PLATINUM":
             case "MONTHLY":
                 return now.plusMonths(1);
+
             case "QUARTERLY":
                 return now.plusMonths(3);
+
             case "ANNUAL":
                 return now.plusYears(1);
+
             default:
-                return now.plusMonths(1); // default to monthly
+                // unknown type → default to 1 month
+                return now.plusMonths(1);
         }
     }
 
@@ -79,7 +98,6 @@ public class Membership {
         return transaction != null ? transaction.getPaymentStatus() : null;
     }
 
-    // FIXED: Use getPaymentDate() which exists in Transaction
     public LocalDateTime getTransactionPaymentDate() {
         return transaction != null ? transaction.getPaymentDate() : null;
     }
@@ -92,7 +110,7 @@ public class Membership {
     public void setUser(User user) { this.user = user; }
 
     public Transaction getTransaction() { return transaction; }
-    public void setTransaction(Transaction transaction) { 
+    public void setTransaction(Transaction transaction) {
         this.transaction = transaction;
         if (transaction != null) {
             this.transactionCode = transaction.getTransactionCode();
@@ -100,9 +118,8 @@ public class Membership {
     }
 
     public String getMembershipType() { return membershipType; }
-    public void setMembershipType(String membershipType) { 
+    public void setMembershipType(String membershipType) {
         this.membershipType = membershipType;
-        // Update expiry date when membership type changes
         if (this.membershipActivatedDate != null) {
             this.membershipExpiryDate = calculateExpiryDate(membershipType);
         }
@@ -112,12 +129,12 @@ public class Membership {
     public void setTransactionCode(String transactionCode) { this.transactionCode = transactionCode; }
 
     public LocalDateTime getMembershipActivatedDate() { return membershipActivatedDate; }
-    public void setMembershipActivatedDate(LocalDateTime membershipActivatedDate) { 
+    public void setMembershipActivatedDate(LocalDateTime membershipActivatedDate) {
         this.membershipActivatedDate = membershipActivatedDate;
     }
 
     public LocalDateTime getMembershipExpiryDate() { return membershipExpiryDate; }
-    public void setMembershipExpiryDate(LocalDateTime membershipExpiryDate) { 
+    public void setMembershipExpiryDate(LocalDateTime membershipExpiryDate) {
         this.membershipExpiryDate = membershipExpiryDate;
     }
 }

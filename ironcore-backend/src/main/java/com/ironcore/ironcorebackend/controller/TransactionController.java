@@ -55,13 +55,11 @@ public class TransactionController {
     public ResponseEntity<?> getTransactionsByUser(@PathVariable Long userId) {
         try {
             List<Transaction> transactions = transactionService.getTransactionsByUser(userId);
-            
-            // Transform transactions to include class and membership data
+
             List<Map<String, Object>> transactionDetails = transactions.stream()
                 .map(transaction -> {
                     Map<String, Object> result = new HashMap<>();
-                    
-                    // Basic transaction data
+
                     result.put("id", transaction.getId());
                     result.put("transactionCode", transaction.getTransactionCode());
                     result.put("totalAmount", transaction.getTotalAmount());
@@ -69,16 +67,14 @@ public class TransactionController {
                     result.put("paymentMethod", transaction.getPaymentMethod());
                     result.put("paymentStatus", transaction.getPaymentStatus());
                     result.put("paymentDate", transaction.getPaymentDate());
-                    
-                    // Check for ClassEnrollment
+
                     Optional<ClassEnrollment> enrollment = classEnrollmentRepository.findByTransactionId(transaction.getId());
                     if (enrollment.isPresent()) {
                         ClassEnrollment ce = enrollment.get();
                         result.put("className", ce.getClassEntity() != null ? ce.getClassEntity().getName() : null);
                         result.put("classId", ce.getClassEntity() != null ? ce.getClassEntity().getId() : null);
                         result.put("sessionCompleted", ce.getSessionCompleted());
-                        
-                        // Schedule data
+
                         if (ce.getSchedule() != null) {
                             result.put("scheduleId", ce.getSchedule().getId());
                             result.put("scheduleDay", ce.getSchedule().getDay());
@@ -86,8 +82,7 @@ public class TransactionController {
                             result.put("scheduleTime", ce.getSchedule().getTimeSlot());
                         }
                     }
-                    
-                    // Check for Membership
+
                     Optional<Membership> membership = membershipRepository.findByTransactionId(transaction.getId());
                     if (membership.isPresent()) {
                         Membership m = membership.get();
@@ -95,13 +90,13 @@ public class TransactionController {
                         result.put("membershipActivatedDate", m.getMembershipActivatedDate());
                         result.put("membershipExpiryDate", m.getMembershipExpiryDate());
                     }
-                    
+
                     return result;
                 })
                 .collect(Collectors.toList());
-            
+
             return ResponseEntity.ok(transactionDetails);
-            
+
         } catch (Exception e) {
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("message", "Failed to fetch user transactions: " + e.getMessage());
@@ -125,23 +120,57 @@ public class TransactionController {
     @GetMapping("/check-active-membership")
     public ResponseEntity<Map<String, Object>> checkActiveMembership(@RequestParam Long userId) {
         Map<String, Object> result = new HashMap<>();
+        LocalDateTime now = LocalDateTime.now();
 
-        Optional<Membership> activeOpt = transactionService.getActiveMembership(userId);
+        // Get all memberships for this user
+        java.util.List<Membership> memberships = membershipRepository.findByUserId(userId);
 
-        if (activeOpt.isEmpty()) {
-            result.put("hasActiveMembership", false);
-        } else {
-            Membership m = activeOpt.get();
-            result.put("hasActiveMembership", true);
-            result.put("membershipType", m.getMembershipType());
-            result.put("membershipActivatedDate", m.getMembershipActivatedDate());
-            result.put("membershipExpiryDate", m.getMembershipExpiryDate());
-            result.put("transactionCode", m.getTransactionCode());
+        boolean hasActive = false;
+        boolean hasPending = false;
+        Membership selected = null;
+        PaymentStatus selectedStatus = null;
+
+        for (Membership m : memberships) {
+            PaymentStatus status = m.getPaymentStatus();
+
+            boolean timeActive =
+                    m.getMembershipActivatedDate() != null &&
+                    m.getMembershipExpiryDate() != null &&
+                    m.getMembershipExpiryDate().isAfter(now);
+
+            // ✅ ACTIVE: COMPLETED + not expired
+            if (status == PaymentStatus.COMPLETED && timeActive) {
+                hasActive = true;
+                selected = m;
+                selectedStatus = status;
+                // Active is the strongest case, we can stop here
+                break;
+            }
+
+            // ✅ PENDING: ANYTHING that is NOT COMPLETED (including null)
+            if (!hasPending && (status == null || status != PaymentStatus.COMPLETED)) {
+                hasPending = true;
+                selected = m;
+                selectedStatus = status;
+                // don't break; we still loop to see if there is an active one
+            }
+        }
+
+        result.put("hasActiveMembership", hasActive);
+        result.put("hasPendingMembership", hasPending);
+
+        if (selected != null) {
+            result.put("membershipType", selected.getMembershipType());
+            result.put("membershipActivatedDate", selected.getMembershipActivatedDate());
+            result.put("membershipExpiryDate", selected.getMembershipExpiryDate());
+            result.put("transactionCode", selected.getTransactionCode());
+            result.put("membershipStatus", selectedStatus != null ? selectedStatus.name() : null);
         }
 
         return ResponseEntity.ok(result);
     }
 
+    // This helper is now optional; you can delete it if unused elsewhere
     public Optional<Membership> getActiveMembership(Long userId) {
         if (userId == null) {
             throw new IllegalArgumentException("User ID cannot be null");
@@ -170,7 +199,7 @@ public class TransactionController {
         if (transactionCode == null || transactionCode.trim().isEmpty()) {
             body.put("valid", false);
             body.put("message", "Transaction code is required.");
-            return ResponseEntity.ok(body); // 200 so frontend doesn't go to catch
+            return ResponseEntity.ok(body);
         }
 
         String code = transactionCode.trim().toUpperCase();
@@ -184,7 +213,6 @@ public class TransactionController {
 
         Transaction tx = txOpt.get();
 
-        // Common fields
         body.put("transaction", tx);
         body.put("userName", tx.getUser().getUsername());
         body.put("userEmail", tx.getUser().getEmail());
@@ -192,11 +220,9 @@ public class TransactionController {
         body.put("paymentStatus", tx.getPaymentStatus().name());
         body.put("paymentDate", tx.getPaymentDate());
 
-        // Default message
         body.put("valid", false);
         body.put("message", "Invalid or expired access for this code.");
 
-        // Check related membership
         Optional<Membership> membershipOpt = membershipRepository.findByTransactionId(tx.getId());
         if (membershipOpt.isPresent()) {
             Membership m = membershipOpt.get();
@@ -208,26 +234,22 @@ public class TransactionController {
             boolean notExpired = m.getMembershipExpiryDate() != null
                     && m.getMembershipExpiryDate().isAfter(now);
 
-            // ✅ 1) Payment is done, but membership not yet activated → ACTIVATE NOW
             if (paid && !activated) {
                 LocalDateTime activatedNow = now;
                 m.setMembershipActivatedDate(activatedNow);
 
-                // Set expiry based on plan
                 String type = m.getMembershipType() != null
                         ? m.getMembershipType().toUpperCase()
                         : "";
 
                 switch (type) {
                     case "SESSION":
-                        // 1-day pass
                         m.setMembershipExpiryDate(activatedNow.plusDays(1));
                         break;
                     case "SILVER":
                     case "GOLD":
                     case "PLATINUM":
                     default:
-                        // default: 1 month
                         m.setMembershipExpiryDate(activatedNow.plusMonths(1));
                         break;
                 }
@@ -241,7 +263,6 @@ public class TransactionController {
                 return ResponseEntity.ok(body);
             }
 
-            // ✅ 2) Already activated and not expired → still valid
             if (paid && activated && notExpired) {
                 body.put("membershipActivatedDate", m.getMembershipActivatedDate());
                 body.put("membershipExpiryDate", m.getMembershipExpiryDate());
@@ -250,7 +271,6 @@ public class TransactionController {
                 return ResponseEntity.ok(body);
             }
 
-            // ❌ 3) Other cases (unpaid / expired)
             body.put("membershipActivatedDate", m.getMembershipActivatedDate());
             body.put("membershipExpiryDate", m.getMembershipExpiryDate());
 
@@ -265,7 +285,6 @@ public class TransactionController {
             return ResponseEntity.ok(body);
         }
 
-        // Check related class enrollment
         Optional<ClassEnrollment> enrollmentOpt = classEnrollmentRepository.findByTransactionId(tx.getId());
         if (enrollmentOpt.isPresent()) {
             ClassEnrollment ce = enrollmentOpt.get();
@@ -292,13 +311,11 @@ public class TransactionController {
             return ResponseEntity.ok(body);
         }
 
-        // No membership or class linked
         body.put("type", "UNKNOWN");
         body.put("message", "Transaction exists but is not linked to a membership or class.");
         return ResponseEntity.ok(body);
     }
 
-    // NEW: Get transaction with full details by ID
     @GetMapping("/{transactionId}/details")
     public ResponseEntity<?> getTransactionWithDetails(@PathVariable Long transactionId) {
         try {
@@ -308,11 +325,10 @@ public class TransactionController {
                 errorResponse.put("message", "Transaction not found");
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
             }
-            
+
             Transaction transaction = transactionOpt.get();
             Map<String, Object> result = new HashMap<>();
-            
-            // Basic transaction data
+
             result.put("id", transaction.getId());
             result.put("transactionCode", transaction.getTransactionCode());
             result.put("totalAmount", transaction.getTotalAmount());
@@ -321,8 +337,7 @@ public class TransactionController {
             result.put("paymentStatus", transaction.getPaymentStatus());
             result.put("paymentDate", transaction.getPaymentDate());
             result.put("user", transaction.getUser());
-            
-            // Check for ClassEnrollment
+
             Optional<ClassEnrollment> enrollment = classEnrollmentRepository.findByTransactionId(transaction.getId());
             if (enrollment.isPresent()) {
                 ClassEnrollment ce = enrollment.get();
@@ -331,18 +346,17 @@ public class TransactionController {
                 enrollmentData.put("className", ce.getClassEntity() != null ? ce.getClassEntity().getName() : null);
                 enrollmentData.put("classId", ce.getClassEntity() != null ? ce.getClassEntity().getId() : null);
                 enrollmentData.put("sessionCompleted", ce.getSessionCompleted());
-                
+
                 if (ce.getSchedule() != null) {
                     enrollmentData.put("scheduleId", ce.getSchedule().getId());
                     enrollmentData.put("scheduleDay", ce.getSchedule().getDay());
                     enrollmentData.put("scheduleDate", ce.getSchedule().getDate());
                     enrollmentData.put("scheduleTime", ce.getSchedule().getTimeSlot());
                 }
-                
+
                 result.put("classEnrollment", enrollmentData);
             }
-            
-            // Check for Membership
+
             Optional<Membership> membership = membershipRepository.findByTransactionId(transaction.getId());
             if (membership.isPresent()) {
                 Membership m = membership.get();
@@ -351,12 +365,12 @@ public class TransactionController {
                 membershipData.put("membershipType", m.getMembershipType());
                 membershipData.put("membershipActivatedDate", m.getMembershipActivatedDate());
                 membershipData.put("membershipExpiryDate", m.getMembershipExpiryDate());
-                
+
                 result.put("membership", membershipData);
             }
-            
+
             return ResponseEntity.ok(result);
-            
+
         } catch (Exception e) {
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("message", "Failed to fetch transaction details: " + e.getMessage());

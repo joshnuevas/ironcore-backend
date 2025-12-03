@@ -15,23 +15,29 @@ public class Transaction {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    // NEW: transaction type
     @Enumerated(EnumType.STRING)
     @Column(name = "transaction_type")
     private TransactionType transactionType;
 
-    // Pure financial data only
+    @Column(name = "transaction_code", nullable = false, unique = true)
     private String transactionCode;
+
+    @Column(name = "total_amount")
     private Double totalAmount;
+
+    @Column(name = "processing_fee")
     private Double processingFee;
+
+    @Column(name = "payment_method")
     private String paymentMethod;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status")
     private PaymentStatus paymentStatus;
 
+    @Column(name = "payment_date")
     private LocalDateTime paymentDate;
 
-    // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
