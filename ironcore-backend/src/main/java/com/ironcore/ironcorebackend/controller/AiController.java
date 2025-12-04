@@ -117,44 +117,65 @@ public class AiController {
                 .orElse("")
                 .trim();
 
-        // 2) Read optional userId (so AI can check *this* user's info)
+        // 2) Read optional userId
         Long userId = null;
         Object userIdObj = body.get("userId");
         if (userIdObj instanceof Number num) {
             userId = num.longValue();
         } else if (userIdObj instanceof String s && !s.isBlank()) {
             try {
-                // ✅ Fix: avoid "unnecessary temporary" by converting directly to Long
                 userId = Long.valueOf(s.trim());
             } catch (NumberFormatException ignored) {}
         }
 
-        // 3) Load global data from your DB
+        // 3) Load global data
         List<ClassEntity> classes = classRepository.findAll();
         List<Trainer> trainers = trainerRepository.findAll();
         List<Membership> memberships = membershipRepository.findAll();
         List<Schedule> schedules = scheduleRepository.findAll();
 
-        // 4) Load THIS user (if userId provided)
+        // 4) Load current user
         User currentUser = null;
         if (userId != null) {
             currentUser = userRepository.findById(userId).orElse(null);
         }
 
-        // 5) Load THIS user’s active memberships
+        // 5) Load user's active memberships
         List<Membership> userActiveMemberships = Collections.emptyList();
         if (userId != null) {
             userActiveMemberships =
                     membershipRepository.findActiveMembershipsByUser(userId, LocalDateTime.now());
         }
 
-        // 6) Load THIS user’s class enrollments (for advanced personalization)
+        // 6) Load user enrollments
         List<ClassEnrollment> userEnrollments = Collections.emptyList();
         if (userId != null) {
             userEnrollments = classEnrollmentRepository.findByUserId(userId);
         }
 
-        // 7) Build a compact “knowledge base” text
+        // 7) Compute today's date and human-readable form
+        LocalDate today = LocalDate.now();
+        String todayHuman = today.format(DateTimeFormatter.ofPattern("MMMM d, yyyy"));
+
+        // 8) Compute TODAY_CLASS_STATUS (only true "today", not future)
+        boolean globalHasTodayClass = schedules.stream()
+                .anyMatch(s -> s.getDate() != null && s.getDate().isEqual(today));
+
+        boolean userHasTodayClass = userEnrollments.stream()
+                .filter(ClassEnrollment::isPaid)
+                .filter(ce -> ce.getSchedule() != null && ce.getSchedule().getDate() != null)
+                .anyMatch(ce -> ce.getSchedule().getDate().isEqual(today));
+
+        String todayStatus;
+        if (!globalHasTodayClass) {
+            todayStatus = "NO_CLASSES_TODAY";
+        } else if (userHasTodayClass) {
+            todayStatus = "USER_HAS_CLASS_TODAY";
+        } else {
+            todayStatus = "GLOBAL_CLASSES_EXIST_TODAY";
+        }
+
+        // 9) Build gym data text
         String gymDataText = buildGymDataText(
                 currentUser,
                 classes,
@@ -165,50 +186,45 @@ public class AiController {
                 userEnrollments
         );
 
-        // 8) Prompt: mix IronCore data + general fitness knowledge
+        // 10) Final AI prompt
         String prompt = """
                 You are the virtual assistant of IronCore Gym, a real fitness center.
-                You are answering questions for members inside the IronCore Gym web app.
+                You respond to users inside the IronCore Gym web app.
 
-                You have the following REAL data from the IronCore system:
-                - The CURRENT USER (their name, email, and their membership + classes).
-                - Membership PLANS (SESSION, SILVER, GOLD, PLATINUM) with prices and features.
-                - CURRENT USER MEMBERSHIP status (if they have an active membership, its type and expiry).
-                - CURRENT USER CLASS ENROLLMENTS (upcoming and recent past).
-                - Global classes (names, descriptions, intensity, locations, prices, requirements, benefits).
-                - Global trainers (names, specialties, locations, certifications, specializations, experience).
-                - Global class schedules (class, day, date, time slot, available slots).
+                Today's date is %s.
+                A class is considered "today" ONLY if its date is exactly %s.
+                If a class has a different date (for example: 2025-12-08), you MUST NOT call it "today".
+                Instead, you must phrase it as "on December 8, 2025" or "upcoming on December 8, 2025".
+
+                The system provides an internal status for today's classes:
+                TODAY_CLASS_STATUS = %s
+
+                IMPORTANT:
+                - NEVER reveal, show, repeat, or mention "TODAY_CLASS_STATUS" in your answer.
+                - NEVER output its value or hint that the system used a status.
+                - Use it ONLY to choose the correct logic about today's classes.
+
+                Rules about today:
+                - If TODAY_CLASS_STATUS = "NO_CLASSES_TODAY":
+                    • Clearly say that there are no classes scheduled today (%s).
+                    • You may mention future classes, but you must call them "upcoming"
+                    and refer to their real date (e.g., "on December 8, 2025"),
+                    NEVER "today" or "later today".
+                - If TODAY_CLASS_STATUS = "USER_HAS_CLASS_TODAY":
+                    • Clearly say that the user has a class today (%s).
+                    • Use the schedule data to show the class name and time.
+                - If TODAY_CLASS_STATUS = "GLOBAL_CLASSES_EXIST_TODAY":
+                    • Clearly say that there are classes scheduled today (%s),
+                    but the user is not enrolled in any of them.
+
+                DO NOT contradict this logic. Never call a future-dated class "today".
 
                 CRITICAL RULES:
-                - When the user asks about IronCore-specific things
-                  (their membership status, membership plans, prices, classes, trainers, schedules),
-                  you MUST use and respect the IronCore Gym data provided below.
-                - Do NOT invent new membership types, prices, classes, trainers, or schedules that are
-                  not in the IronCore data.
-                - If the user asks things like "Do I have an active membership?",
-                  "What plan am I currently on?", or "When does mine expire?",
-                  use the CURRENT USER MEMBERSHIP section.
-                - If there is no active membership for this user, clearly say
-                  they do not currently have an active membership and may purchase one.
-
-                - For general fitness, exercise, or basic nutrition questions
-                  (for example: workout tips, simple nutrition guidance, stretching, recovery),
-                  you MAY answer using your general fitness and nutrition knowledge.
-                  Make sure the advice is safe, balanced, and not extreme.
-                  You can optionally connect it to IronCore (e.g., which classes or memberships might help).
-
-                - Only use the fallback
-                  "I don't see that in the IronCore system. Please double-check in the app or at the front desk."
-                  when the user asks for very specific account or system data that is clearly not present
-                  (for example: exact payment reference numbers, promo codes, or transaction errors).
-
-                - When you mention membership expiry dates, use a simple human readable format
-                  like "December 21, 2025" and do NOT show time-of-day or milliseconds.
-
-                - Keep answers short and structured: use bullet points or short paragraphs
-                  so they are easy to read in the web app.
-                - Do not give medical advice. If the question sounds medical or very personal,
-                  suggest they consult a doctor or certified professional.
+                - Use ONLY the IronCore data below when talking about:
+                memberships, user subscriptions, class schedules, trainers, or pricing.
+                - Do NOT invent classes, trainers, schedules, or plans.
+                - Keep answers short, readable, and formatted with bullet points if needed.
+                - Do NOT give medical advice.
 
                 ============= IRONCORE GYM DATA START =============
                 %s
@@ -216,7 +232,16 @@ public class AiController {
 
                 User question:
                 %s
-                """.formatted(gymDataText, message);
+                """.formatted(
+                todayHuman,          // "Today's date is %s."
+                todayHuman,          // "ONLY if its date is exactly %s."
+                todayStatus,         // TODAY_CLASS_STATUS = %s
+                todayHuman,          // "no classes scheduled today (%s)."
+                todayHuman,          // "user has a class today (%s)."
+                todayHuman,          // "there are classes scheduled today (%s)"
+                gymDataText,
+                message
+        );
 
         return geminiService.generateText(prompt)
                 .map(reply -> Map.of("reply", reply));
