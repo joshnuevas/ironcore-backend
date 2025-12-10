@@ -70,7 +70,8 @@ public class AttendanceService {
         List<Map<String, Object>> members = new ArrayList<>();
         for (Membership membership : uniqueMembers.values()) {
             User user = membership.getUser();
-            if (user == null) continue;
+            if (user == null)
+                continue;
 
             Map<String, Object> memberData = new HashMap<>();
             memberData.put("userId", user.getId());
@@ -150,7 +151,8 @@ public class AttendanceService {
 
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
-        response.put("message", isUpdate ? "Attendance record updated successfully" : "Attendance record created successfully");
+        response.put("message",
+                isUpdate ? "Attendance record updated successfully" : "Attendance record created successfully");
         response.put("attendanceId", saved.getId());
         response.put("checkedIn", saved.getCheckedIn());
         response.put("checkInTime", saved.getCheckInTime());
@@ -325,15 +327,28 @@ public class AttendanceService {
     }
 
     public Map<String, Object> getMyMembershipsHistory(long userId) {
+        // Get ALL memberships for the user, newest first
         List<Membership> allMemberships = membershipService.getAllMembershipsByUser(userId);
         allMemberships.sort((m1, m2) -> m2.getMembershipActivatedDate().compareTo(m1.getMembershipActivatedDate()));
 
+        // 🔍 Determine the SINGLE "current" membership (same logic as subscription
+        // insights)
+        List<Membership> activeMemberships = membershipService.getActiveMembershipsByUser(userId);
+
+        Membership currentMembership = activeMemberships.stream()
+                .max(Comparator.comparing(Membership::getMembershipActivatedDate))
+                .orElse(null);
+
+        Long currentMembershipId = currentMembership != null ? currentMembership.getId() : null;
+
+        LocalDate today = LocalDate.now();
         List<Map<String, Object>> membershipsWithStats = new ArrayList<>();
 
         for (Membership membership : allMemberships) {
             LocalDate start = membership.getMembershipActivatedDate().toLocalDate();
             LocalDate end = membership.getMembershipExpiryDate().toLocalDate();
 
+            // Attendance strictly within this membership period
             List<Attendance> membershipAttendance = attendanceRepository
                     .findByDateRange(start, end)
                     .stream()
@@ -349,8 +364,13 @@ public class AttendanceService {
                     .count();
 
             long totalDays = java.time.temporal.ChronoUnit.DAYS.between(start, end) + 1;
-            boolean isActive = membership.isCurrentlyActive();
-            boolean isExpired = membership.isExpired();
+
+            // ✅ Only ONE membership is "CURRENT"
+            boolean isActive = currentMembershipId != null
+                    && membership.getId().equals(currentMembershipId);
+
+            // Explicit expired flag based on dates
+            boolean isExpired = end.isBefore(today);
 
             Map<String, Object> membershipData = new HashMap<>();
             membershipData.put("membershipId", membership.getId());
@@ -361,7 +381,8 @@ public class AttendanceService {
             membershipData.put("attendedDays", attendedDays);
             membershipData.put("isActive", isActive);
             membershipData.put("isExpired", isExpired);
-            membershipData.put("utilizationRate", totalDays > 0 ? Math.round((attendedDays * 100.0) / totalDays) : 0);
+            membershipData.put("utilizationRate",
+                    totalDays > 0 ? Math.round((attendedDays * 100.0) / totalDays) : 0);
 
             membershipsWithStats.add(membershipData);
         }
@@ -463,13 +484,16 @@ public class AttendanceService {
                 .count();
 
         double attendanceRate = daysUsed > 0 ? (attendedDays * 100.0) / daysUsed : 0;
-        double subscriptionUtilizationRate = totalSubscriptionDays > 0 ? (attendedDays * 100.0) / totalSubscriptionDays : 0;
+        double subscriptionUtilizationRate = totalSubscriptionDays > 0 ? (attendedDays * 100.0) / totalSubscriptionDays
+                : 0;
         double targetDaysPerWeek = getTargetDaysPerWeek(membership.getMembershipType());
         double expectedAttendanceByNow = (daysUsed * targetDaysPerWeek) / 7.0;
-        double attendanceVsTarget = expectedAttendanceByNow > 0 ? (attendedDays * 100.0) / expectedAttendanceByNow : (attendedDays > 0 ? 100 : 0);
+        double attendanceVsTarget = expectedAttendanceByNow > 0 ? (attendedDays * 100.0) / expectedAttendanceByNow
+                : (attendedDays > 0 ? 100 : 0);
         double remainingDaysTarget = (daysRemaining * targetDaysPerWeek) / 7.0;
 
-        String feedback = generateSubscriptionBasedFeedback(attendanceRate, subscriptionUtilizationRate, attendanceVsTarget, daysRemaining, attendedDays, membership.getMembershipType());
+        String feedback = generateSubscriptionBasedFeedback(attendanceRate, subscriptionUtilizationRate,
+                attendanceVsTarget, daysRemaining, attendedDays, membership.getMembershipType());
 
         insights.put("subscriptionInfo", Map.of(
                 "membershipType", membership.getMembershipType(),
@@ -512,23 +536,30 @@ public class AttendanceService {
         };
     }
 
-    private String generateSubscriptionBasedFeedback(double attendanceRate, double utilizationRate, double vsTarget, long daysRemaining, long attendedDays, String membershipType) {
+    private String generateSubscriptionBasedFeedback(double attendanceRate, double utilizationRate, double vsTarget,
+            long daysRemaining, long attendedDays, String membershipType) {
         StringBuilder feedback = new StringBuilder();
 
         if (attendanceRate >= 80) {
-            feedback.append("🎉 Excellent! You're attending ").append(Math.round(attendanceRate)).append("% of your available days. ");
+            feedback.append("🎉 Excellent! You're attending ").append(Math.round(attendanceRate))
+                    .append("% of your available days. ");
         } else if (attendanceRate >= 60) {
-            feedback.append("👍 Good consistency! You're attending ").append(Math.round(attendanceRate)).append("% of your available days. ");
+            feedback.append("👍 Good consistency! You're attending ").append(Math.round(attendanceRate))
+                    .append("% of your available days. ");
         } else if (attendanceRate >= 40) {
-            feedback.append("💪 Making progress! You're attending ").append(Math.round(attendanceRate)).append("% of your available days. ");
+            feedback.append("💪 Making progress! You're attending ").append(Math.round(attendanceRate))
+                    .append("% of your available days. ");
         } else if (attendanceRate >= 20) {
-            feedback.append("📊 You're attending ").append(Math.round(attendanceRate)).append("% of your available days. ");
+            feedback.append("📊 You're attending ").append(Math.round(attendanceRate))
+                    .append("% of your available days. ");
         } else {
-            feedback.append("🎯 Let's boost your attendance! You're currently at ").append(Math.round(attendanceRate)).append("%. ");
+            feedback.append("🎯 Let's boost your attendance! You're currently at ").append(Math.round(attendanceRate))
+                    .append("%. ");
         }
 
         if (vsTarget >= 120) {
-            feedback.append("You're crushing your target by ").append(Math.round(vsTarget - 100)).append("%! Amazing! 🏆");
+            feedback.append("You're crushing your target by ").append(Math.round(vsTarget - 100))
+                    .append("%! Amazing! 🏆");
         } else if (vsTarget >= 100) {
             feedback.append("You're right on track with your goals! 🔥");
         } else if (vsTarget >= 80) {
