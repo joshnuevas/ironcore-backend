@@ -126,7 +126,7 @@ public class AdminController {
             return ResponseEntity.ok(response);
 
         } catch (IllegalArgumentException e) {
-            logger.warn("Validation error marking session. scheduleId={}, enrollmentId={}: {}", 
+            logger.warn("Validation error marking session. scheduleId={}, enrollmentId={}: {}",
                     scheduleId, enrollmentId, e.getMessage());
 
             Map<String, String> errorResponse = new HashMap<>();
@@ -138,6 +138,40 @@ public class AdminController {
 
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("message", "Failed to mark session as completed: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    // Cancel a membership by transaction code
+    @PutMapping("/memberships/{transactionCode}/cancel")
+    public ResponseEntity<?> cancelMembership(
+            @PathVariable String transactionCode,
+            HttpSession session) {
+
+        // Verify admin access
+        ResponseEntity<?> accessCheck = verifyAdminAccess(session);
+        if (accessCheck != null) return accessCheck;
+
+        try {
+            adminService.cancelMembership(transactionCode);
+
+            Map<String, String> response = new HashMap<>();
+            response.put("message", "Membership has been cancelled successfully.");
+            return ResponseEntity.ok(response);
+
+        } catch (IllegalArgumentException e) {
+            logger.warn("Validation error cancelling membership. transactionCode={}: {}",
+                    transactionCode, e.getMessage());
+
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+
+        } catch (Exception e) {
+            logger.error("Error cancelling membership. transactionCode={}", transactionCode, e);
+
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Failed to cancel membership: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }

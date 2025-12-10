@@ -31,6 +31,8 @@ public class AdminService {
     @Autowired
     private ClassEnrollmentService classEnrollmentService;
 
+    
+
     public Map<String, Object> getAdminStats() {
         Map<String, Object> stats = new HashMap<>();
 
@@ -116,4 +118,20 @@ public class AdminService {
             scheduleRepository.save(schedule);
         }
     }
+
+    public void cancelMembership(String transactionCode) {
+        Transaction transaction = transactionRepository.findByTransactionCode(transactionCode)
+                .orElseThrow(() -> new IllegalArgumentException("Transaction not found"));
+
+        if (transaction.getPaymentStatus() != PaymentStatus.COMPLETED) {
+            throw new IllegalArgumentException("Only completed memberships can be cancelled");
+        }
+
+        // Mark the transaction as cancelled (ensure CANCELLED exists in PaymentStatus enum)
+        transaction.setPaymentStatus(PaymentStatus.CANCELLED);
+        transactionRepository.save(transaction);
+
+        
+    }
+
 }
