@@ -32,13 +32,27 @@ public class LoginController {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    /**
+     * Utility helper to check if a string is null or blank after trimming.
+     */
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    /**
+     * Handle user login:
+     * - Validates input
+     * - Checks credentials
+     * - Generates JWT
+     * - Stores userId in session
+     */
     @PostMapping("/login")
     public ResponseEntity<?> loginUser(@RequestBody LoginRequest request, HttpSession session) {
 
         // Basic null/blank validation (defense-in-depth; frontend already validates)
         if (request == null ||
-            request.getEmail() == null || request.getEmail().trim().isEmpty() ||
-            request.getPassword() == null || request.getPassword().trim().isEmpty()) {
+                isBlank(request.getEmail()) ||
+                isBlank(request.getPassword())) {
 
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body("Invalid email or password.");
@@ -77,6 +91,9 @@ public class LoginController {
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * Invalidate the current session (logout).
+     */
     @PostMapping("/logout")
     public ResponseEntity<?> logout(HttpSession session) {
         session.invalidate();

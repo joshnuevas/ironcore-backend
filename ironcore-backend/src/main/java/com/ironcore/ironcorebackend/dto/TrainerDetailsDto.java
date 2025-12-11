@@ -6,7 +6,7 @@ public class TrainerDetailsDto {
 
     private Long id;
     private String name;
-    private String image;          // emoji or image URL
+    private String image;          // URL or emoji
     private String specialty;
     private String location;
     private String description;
@@ -14,13 +14,46 @@ public class TrainerDetailsDto {
     private String successRate;
     private String sessionsTaught;
     private String availability;
-    private Integer rating;        // from Trainer (int → boxed)
 
+    private Integer rating;        // Wrapper → nullable
     private List<String> certifications;
     private List<String> specializations;
 
     public TrainerDetailsDto() {
+        // Required default constructor
     }
+
+    public TrainerDetailsDto(
+            Long id,
+            String name,
+            String image,
+            String specialty,
+            String location,
+            String description,
+            String experience,
+            String successRate,
+            String sessionsTaught,
+            String availability,
+            Integer rating,
+            List<String> certifications,
+            List<String> specializations
+    ) {
+        this.id = id;
+        this.name = name;
+        this.image = image;
+        this.specialty = specialty;
+        this.location = location;
+        this.description = description;
+        this.experience = experience;
+        this.successRate = successRate;
+        this.sessionsTaught = sessionsTaught;
+        this.availability = availability;
+        this.rating = rating;
+        this.certifications = certifications;
+        this.specializations = specializations;
+    }
+
+    // Getters and setters
 
     public Long getId() {
         return id;

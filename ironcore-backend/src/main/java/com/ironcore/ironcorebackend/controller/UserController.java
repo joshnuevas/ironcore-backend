@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,135 +39,171 @@ public class UserController {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    // ========================================
+    // Helpers
+    // ========================================
+
+    private ResponseEntity<Map<String, String>> message(HttpStatus status, String msg) {
+        return ResponseEntity.status(status).body(Map.of("message", msg));
+    }
+
+    private ResponseEntity<Map<String, String>> badRequest(String msg) {
+        return message(HttpStatus.BAD_REQUEST, msg);
+    }
+
+    private ResponseEntity<Map<String, String>> notFound(String msg) {
+        return message(HttpStatus.NOT_FOUND, msg);
+    }
+
+    private User getUserOrThrow(long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+    }
+
+    private String buildProfilePictureDataUri(User user) {
+        if (user.getProfilePicture() == null || user.getProfilePicture().length == 0) {
+            return "";
+        }
+        String base64Image = Base64.getEncoder().encodeToString(user.getProfilePicture());
+        String mimeType = user.getProfilePictureMimeType() != null
+                ? user.getProfilePictureMimeType()
+                : "image/jpeg";
+        return "data:" + mimeType + ";base64," + base64Image;
+    }
+
+    private Map<String, Object> buildUserResponse(User user, boolean includeId) {
+        Map<String, Object> response = new HashMap<>();
+        if (includeId) {
+            response.put("id", user.getId());
+        }
+        response.put("username", user.getUsername());
+        response.put("email", user.getEmail());
+        response.put("isAdmin", Boolean.TRUE.equals(user.getIsAdmin()));
+        response.put("profilePicture", buildProfilePictureDataUri(user));
+        return response;
+    }
+
+    // ========================================
+    // Current user
+    // ========================================
+
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(HttpSession session) {
         Long userId = (Long) session.getAttribute("userId");
 
         if (userId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("message", "Not authenticated. Please log in."));
+            return message(HttpStatus.UNAUTHORIZED, "Not authenticated. Please log in.");
         }
 
         Optional<User> userOptional = userRepository.findById(userId);
-
         if (userOptional.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("message", "User not found"));
+            return notFound("User not found");
         }
 
         User user = userOptional.get();
-        Map<String, Object> response = new HashMap<>();
-
-        response.put("id", user.getId());
-        response.put("username", user.getUsername());
-        response.put("email", user.getEmail());
-        response.put("isAdmin", Boolean.TRUE.equals(user.getIsAdmin()));
-
-        if (user.getProfilePicture() != null && user.getProfilePicture().length > 0) {
-            String base64Image = Base64.getEncoder().encodeToString(user.getProfilePicture());
-            String mimeType = user.getProfilePictureMimeType() != null
-                    ? user.getProfilePictureMimeType() : "image/jpeg";
-            response.put("profilePicture", "data:" + mimeType + ";base64," + base64Image);
-        } else {
-            response.put("profilePicture", "");
-        }
-
+        Map<String, Object> response = buildUserResponse(user, true);
         return ResponseEntity.ok(response);
     }
+
+    // ========================================
+    // Get user by ID
+    // ========================================
 
     @GetMapping("/{userId}")
     public ResponseEntity<?> getUser(@PathVariable long userId) {
-
         Optional<User> userOptional = userRepository.findById(userId);
 
         if (userOptional.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("message", "User not found"));
+            return notFound("User not found");
         }
 
         User user = userOptional.get();
-        Map<String, Object> response = new HashMap<>();
-
-        response.put("username", user.getUsername());
-        response.put("email", user.getEmail());
-        response.put("isAdmin", Boolean.TRUE.equals(user.getIsAdmin()));
-
-        if (user.getProfilePicture() != null && user.getProfilePicture().length > 0) {
-            String base64Image = Base64.getEncoder().encodeToString(user.getProfilePicture());
-            String mimeType = user.getProfilePictureMimeType() != null
-                    ? user.getProfilePictureMimeType() : "image/jpeg";
-            response.put("profilePicture", "data:" + mimeType + ";base64," + base64Image);
-        } else {
-            response.put("profilePicture", "");
-        }
-
+        Map<String, Object> response = buildUserResponse(user, false);
         return ResponseEntity.ok(response);
     }
+
+    // ========================================
+    // Update user profile (username/email)
+    // ========================================
 
     @PutMapping("/{userId}")
     public ResponseEntity<?> updateUser(@PathVariable long userId,
                                         @RequestBody Map<String, String> updates) {
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        User user = getUserOrThrow(userId);
 
         if (updates.containsKey("username")) {
             String newUsername = updates.get("username").trim();
-            if (newUsername.isEmpty())
-                return ResponseEntity.badRequest().body(Map.of("message", "Username cannot be empty"));
+            if (newUsername.isEmpty()) {
+                return badRequest("Username cannot be empty");
+            }
 
             User existingUser = userRepository.findByUsername(newUsername);
-            if (existingUser != null && !existingUser.getId().equals(userId))
-                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", "Username already taken"));
+            if (existingUser != null && !existingUser.getId().equals(userId)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.of("message", "Username already taken"));
+            }
 
             user.setUsername(newUsername);
         }
 
         if (updates.containsKey("email")) {
             String newEmail = updates.get("email").trim();
-            if (newEmail.isEmpty())
-                return ResponseEntity.badRequest().body(Map.of("message", "Email cannot be empty"));
+            if (newEmail.isEmpty()) {
+                return badRequest("Email cannot be empty");
+            }
 
-            if (!newEmail.matches("^[A-Za-z0-9+_.-]+@(.+)$"))
-                return ResponseEntity.badRequest().body(Map.of("message", "Invalid email format"));
+            if (!newEmail.matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
+                return badRequest("Invalid email format");
+            }
 
             User existing = userRepository.findByEmail(newEmail);
-            if (existing != null && !existing.getId().equals(userId))
-                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", "Email already taken"));
+            if (existing != null && !existing.getId().equals(userId)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.of("message", "Email already taken"));
+            }
 
             user.setEmail(newEmail);
         }
 
-        userRepository.save(Objects.requireNonNull(user));
+        userRepository.save(user);
         return ResponseEntity.ok(Map.of("message", "Profile updated successfully"));
     }
+
+    // ========================================
+    // Change password
+    // ========================================
 
     @PutMapping("/{userId}/change-password")
     public ResponseEntity<?> changePassword(@PathVariable long userId,
                                             @RequestBody Map<String, String> body) {
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        User user = getUserOrThrow(userId);
 
         String current = body.getOrDefault("currentPassword", "").trim();
         String next = body.getOrDefault("newPassword", "").trim();
         String confirm = body.getOrDefault("confirmPassword", "").trim();
 
-        if (current.isEmpty() || next.isEmpty() || confirm.isEmpty())
-            return ResponseEntity.badRequest().body(Map.of("message", "All fields required"));
+        if (current.isEmpty() || next.isEmpty() || confirm.isEmpty()) {
+            return badRequest("All fields required");
+        }
 
         // Compare current password using BCrypt
-        if (!passwordEncoder.matches(current, user.getPassword()))
-            return ResponseEntity.badRequest().body(Map.of("message", "Current password incorrect"));
+        if (!passwordEncoder.matches(current, user.getPassword())) {
+            return badRequest("Current password incorrect");
+        }
 
-        if (!next.equals(confirm))
-            return ResponseEntity.badRequest().body(Map.of("message", "Passwords do not match"));
+        if (!next.equals(confirm)) {
+            return badRequest("Passwords do not match");
+        }
 
-        if (next.equals(current))
-            return ResponseEntity.badRequest().body(Map.of("message", "New password must be different"));
+        if (next.equals(current)) {
+            return badRequest("New password must be different");
+        }
 
-        if (next.length() < 8 || next.length() > 128)
-            return ResponseEntity.badRequest().body(Map.of("message", "Password must be between 8 and 128 characters."));
+        if (next.length() < 8 || next.length() > 128) {
+            return badRequest("Password must be between 8 and 128 characters.");
+        }
 
         // Store new password as BCrypt hash
         user.setPassword(passwordEncoder.encode(next));
@@ -177,23 +212,27 @@ public class UserController {
         return ResponseEntity.ok(Map.of("message", "Password updated successfully"));
     }
 
-    // The rest of your profile-picture endpoints stay as-is
+    // ========================================
+    // Profile picture: upload
+    // ========================================
+
     @PostMapping("/{userId}/profile-picture")
     public ResponseEntity<?> uploadProfilePicture(@PathVariable long userId,
                                                   @RequestParam("profilePicture") MultipartFile file) {
 
         Optional<User> optional = userRepository.findById(userId);
+        if (optional.isEmpty()) {
+            return notFound("User not found");
+        }
 
-        if (optional.isEmpty()) return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(Map.of("message", "User not found"));
-
-        if (file.isEmpty())
-            return ResponseEntity.badRequest().body(Map.of("message", "No file uploaded"));
+        if (file.isEmpty()) {
+            return badRequest("No file uploaded");
+        }
 
         String type = file.getContentType();
-
-        if (type == null || !type.startsWith("image/"))
-            return ResponseEntity.badRequest().body(Map.of("message", "Invalid file type"));
+        if (type == null || !type.startsWith("image/")) {
+            return badRequest("Invalid file type");
+        }
 
         try {
             byte[] bytes = file.getBytes();
@@ -205,18 +244,21 @@ public class UserController {
 
             return ResponseEntity.ok(Map.of("message", "Image updated"));
         } catch (IOException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("message", "Upload failed"));
+            return message(HttpStatus.INTERNAL_SERVER_ERROR, "Upload failed");
         }
     }
 
+    // ========================================
+    // Profile picture: delete
+    // ========================================
+
     @DeleteMapping("/{userId}/profile-picture")
     public ResponseEntity<?> deleteProfilePicture(@PathVariable long userId) {
-
         Optional<User> optional = userRepository.findById(userId);
 
-        if (optional.isEmpty())
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "User not found"));
+        if (optional.isEmpty()) {
+            return notFound("User not found");
+        }
 
         User user = optional.get();
         user.setProfilePicture(null);

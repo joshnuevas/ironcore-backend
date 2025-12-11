@@ -2,6 +2,10 @@ package com.ironcore.ironcorebackend.dto;
 
 import java.util.List;
 
+/**
+ * DTO representing full details of a class,
+ * including trainer info and rich content (expectations, benefits, requirements).
+ */
 public class ClassDetailsDto {
 
     private Long id;
@@ -23,7 +27,44 @@ public class ClassDetailsDto {
     private List<String> requirements;
 
     public ClassDetailsDto() {
+        // Default constructor for frameworks (Jackson, etc.)
     }
+
+    public ClassDetailsDto(
+            Long id,
+            String name,
+            String icon,
+            String description,
+            double price,
+            String duration,
+            String intensity,
+            Integer maxParticipants,
+            String location,
+            String cancelPolicy,
+            String imageUrl,
+            TrainerDetailsDto trainer,
+            List<String> expectations,
+            List<String> benefits,
+            List<String> requirements
+    ) {
+        this.id = id;
+        this.name = name;
+        this.icon = icon;
+        this.description = description;
+        this.price = price;
+        this.duration = duration;
+        this.intensity = intensity;
+        this.maxParticipants = maxParticipants;
+        this.location = location;
+        this.cancelPolicy = cancelPolicy;
+        this.imageUrl = imageUrl;
+        this.trainer = trainer;
+        this.expectations = expectations;
+        this.benefits = benefits;
+        this.requirements = requirements;
+    }
+
+    // Getters & Setters
 
     public Long getId() {
         return id;

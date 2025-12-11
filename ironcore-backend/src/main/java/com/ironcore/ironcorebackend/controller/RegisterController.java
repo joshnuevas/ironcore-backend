@@ -25,11 +25,25 @@ public class RegisterController {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    /**
+     * Helper to check if a string is null or empty after trimming.
+     */
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    /**
+     * Helper to build a simple error response with a message.
+     */
+    private ResponseEntity<String> error(HttpStatus status, String message) {
+        return ResponseEntity.status(status).body(message);
+    }
+
     @PostMapping("/register")
     public ResponseEntity<String> registerUser(@RequestBody RegisterRequest request) {
 
         if (request == null) {
-            return ResponseEntity.badRequest().body("Invalid request.");
+            return error(HttpStatus.BAD_REQUEST, "Invalid request.");
         }
 
         String username = request.getUsername() != null ? request.getUsername().trim() : "";
@@ -40,29 +54,27 @@ public class RegisterController {
 
         // Basic validation – you can also move this to Bean Validation later
         if (username.isEmpty() || email.isEmpty() || password.isEmpty()) {
-            return ResponseEntity.badRequest().body("Username, email, and password are required.");
+            return error(HttpStatus.BAD_REQUEST, "Username, email, and password are required.");
         }
 
         if (username.length() < 3 || username.length() > 50) {
-            return ResponseEntity.badRequest().body("Username must be between 3 and 50 characters.");
+            return error(HttpStatus.BAD_REQUEST, "Username must be between 3 and 50 characters.");
         }
 
         if (!email.matches("^[A-Za-z0-9+_.-]+@(.+)$") || email.length() > 254) {
-            return ResponseEntity.badRequest().body("Invalid email format.");
+            return error(HttpStatus.BAD_REQUEST, "Invalid email format.");
         }
 
         if (password.length() < 8 || password.length() > 128) {
-            return ResponseEntity.badRequest().body("Password must be between 8 and 128 characters.");
+            return error(HttpStatus.BAD_REQUEST, "Password must be between 8 and 128 characters.");
         }
 
         if (userRepository.existsByEmail(email)) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body("Email already exists!");
+            return error(HttpStatus.CONFLICT, "Email already exists!");
         }
 
         if (userRepository.existsByUsername(username)) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body("Username already taken!");
+            return error(HttpStatus.CONFLICT, "Username already taken!");
         }
 
         User user = new User();
@@ -72,8 +84,7 @@ public class RegisterController {
         // OWASP: store password as BCrypt hash, NOT plain text
         user.setPassword(passwordEncoder.encode(password));
 
-        // You might later want to hash the security answer as well,
-        // but that depends on how your ForgotPassword flow is implemented.
+        // Security question/answer stored as-is (same behavior as before)
         user.setSecurityQuestion(securityQuestion);
         user.setSecurityAnswer(securityAnswer);
 
