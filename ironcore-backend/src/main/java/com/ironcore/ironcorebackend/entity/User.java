@@ -1,6 +1,9 @@
 package com.ironcore.ironcorebackend.entity;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
 @Entity
 @Table(name = "users")
@@ -10,13 +13,21 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "username", nullable = false, unique = true)
+    @NotBlank(message = "Username is required.")
+    @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters.")
+    @Column(name = "username", nullable = false, unique = true, length = 50)
     private String username;
 
-    @Column(name = "email", nullable = false, unique = true)
+    @NotBlank(message = "Email is required.")
+    @Email(message = "Invalid email format.")
+    @Size(max = 254, message = "Email is too long.")
+    @Column(name = "email", nullable = false, unique = true, length = 254)
     private String email;
 
-    @Column(name = "password", nullable = false)
+    // BCrypt hashes are ~60 chars, but we give extra room.
+    @NotBlank(message = "Password is required.")
+    @Size(max = 255, message = "Password hash is too long.")
+    @Column(name = "password", nullable = false, length = 255)
     private String password;
 
     @Column(name = "is_admin", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
@@ -29,9 +40,11 @@ public class User {
     @Column(name = "profile_picture_mime_type", length = 50)
     private String profilePictureMimeType;
 
+    @Size(max = 255)
     @Column(name = "security_question")
     private String securityQuestion;
 
+    @Size(max = 255)
     @Column(name = "security_answer")
     private String securityAnswer;
 

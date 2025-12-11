@@ -1,13 +1,23 @@
 package com.ironcore.ironcorebackend.entity;
 
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
 public class LoginRequest {
+
+    @NotBlank(message = "Email is required.")
+    @Email(message = "Invalid email format.")
+    @Size(max = 254, message = "Email is too long.")
     private String email;
+
+    @NotBlank(message = "Password is required.")
+    @Size(min = 8, max = 128, message = "Password must be between 8 and 128 characters.")
     private String password;
 
-    // --- Constructors ---
-    public LoginRequest() {}
+    public LoginRequest() {
+    }
 
-    // --- Getters and Setters ---
     public String getEmail() {
         return email;
     }
