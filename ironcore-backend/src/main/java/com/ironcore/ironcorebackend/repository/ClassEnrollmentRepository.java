@@ -12,6 +12,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.ironcore.ironcorebackend.entity.ClassEnrollment;
+import com.ironcore.ironcorebackend.entity.PaymentStatus;
 
 @Repository
 public interface ClassEnrollmentRepository extends JpaRepository<ClassEnrollment, Long> {
@@ -50,6 +51,34 @@ public interface ClassEnrollmentRepository extends JpaRepository<ClassEnrollment
     void markSessionCompleted(@Param("enrollmentId") Long enrollmentId);
 
     /**
+     * ✅ NEW: blocks duplicate enrollment for the SAME schedule (user + schedule),
+     * only if the enrollment is ACTIVE (paid + not completed).
+     *
+     * This is the method you should call BEFORE creating a new enrollment.
+     */
+    @Query("""
+        SELECT COUNT(ce) > 0
+        FROM ClassEnrollment ce
+        WHERE ce.user.id = :userId
+          AND ce.schedule.id = :scheduleId
+          AND ce.transaction.paymentStatus = :paidStatus
+          AND (ce.sessionCompleted = false OR ce.sessionCompleted IS NULL)
+    """)
+    boolean existsActiveEnrollmentForSchedule(
+            @Param("userId") Long userId,
+            @Param("scheduleId") Long scheduleId,
+            @Param("paidStatus") PaymentStatus paidStatus
+    );
+
+    /**
+     * Convenience overload (so you can just call existsActiveEnrollmentForSchedule(userId, scheduleId))
+     * If you don't want this overload, remove it and always pass PaymentStatus.COMPLETED.
+     */
+    default boolean existsActiveEnrollmentForSchedule(Long userId, Long scheduleId) {
+        return existsActiveEnrollmentForSchedule(userId, scheduleId, PaymentStatus.COMPLETED);
+    }
+
+    /**
      * OLD exact-match conflict query (kept for compatibility but NOT recommended for overlap use)
      */
     @Query("""
@@ -57,7 +86,7 @@ public interface ClassEnrollmentRepository extends JpaRepository<ClassEnrollment
         WHERE ce.user.id = :userId
         AND ce.schedule.date = :date
         AND ce.schedule.timeSlot = :timeSlot
-        AND ce.sessionCompleted = false
+        AND (ce.sessionCompleted = false OR ce.sessionCompleted IS NULL)
         AND ce.transaction.paymentStatus = com.ironcore.ironcorebackend.entity.PaymentStatus.COMPLETED
     """)
     List<ClassEnrollment> findConflictingSchedules(
@@ -73,7 +102,7 @@ public interface ClassEnrollmentRepository extends JpaRepository<ClassEnrollment
         SELECT ce FROM ClassEnrollment ce
         WHERE ce.user.id = :userId
         AND ce.schedule.date = :date
-        AND ce.sessionCompleted = false
+        AND (ce.sessionCompleted = false OR ce.sessionCompleted IS NULL)
         AND ce.transaction.paymentStatus = com.ironcore.ironcorebackend.entity.PaymentStatus.COMPLETED
     """)
     List<ClassEnrollment> findActiveEnrollmentsOnDate(

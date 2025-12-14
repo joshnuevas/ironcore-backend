@@ -1,4 +1,4 @@
-package com.ironcore.ironcorebackend.entity;
+package com.ironcore.ironcorebackend.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;

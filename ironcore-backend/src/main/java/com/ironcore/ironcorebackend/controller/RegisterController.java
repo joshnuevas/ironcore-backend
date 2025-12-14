@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.ironcore.ironcorebackend.entity.RegisterRequest;
+import com.ironcore.ironcorebackend.dto.RegisterRequest;
 import com.ironcore.ironcorebackend.entity.User;
 import com.ironcore.ironcorebackend.repository.UserRepository;
 

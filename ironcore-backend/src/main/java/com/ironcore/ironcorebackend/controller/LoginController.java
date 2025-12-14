@@ -10,8 +10,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.ironcore.ironcorebackend.entity.LoginRequest;
-import com.ironcore.ironcorebackend.entity.LoginResponse;
+import com.ironcore.ironcorebackend.dto.LoginRequest;
+import com.ironcore.ironcorebackend.dto.LoginResponse;
 import com.ironcore.ironcorebackend.entity.User;
 import com.ironcore.ironcorebackend.repository.UserRepository;
 import com.ironcore.ironcorebackend.util.JwtUtil;

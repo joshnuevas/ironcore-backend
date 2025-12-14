@@ -1,4 +1,4 @@
-package com.ironcore.ironcorebackend.entity;
+package com.ironcore.ironcorebackend.dto;
 
 public class LoginResponse {
     private String token;

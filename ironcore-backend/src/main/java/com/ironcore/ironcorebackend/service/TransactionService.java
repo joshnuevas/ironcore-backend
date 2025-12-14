@@ -331,47 +331,113 @@ public class TransactionService {
     /**
      * ✅ FIXED: checks OVERLAP (7:00-8:00 conflicts with 7:00-7:30)
      */
-    private void createClassEnrollmentFromTransaction(Transaction transaction,
-                                                      Schedule schedule,
-                                                      ClassEntity classEntity) {
+    private void createClassEnrollmentFromTransaction(
+            Transaction transaction,
+            Schedule schedule,
+            ClassEntity classEntity
+    ) {
         try {
             logger.info("=== CREATING CLASS ENROLLMENT ===");
 
             Long userId = transaction.getUser().getId();
+            Long scheduleId = schedule.getId();
             LocalDate date = schedule.getDate();
             String timeSlot = schedule.getTimeSlot();
 
-            logger.info("Checking for schedule conflicts (OVERLAP) for User {} on {} at {}",
-                    userId, date, timeSlot);
+            // --------------------------------------------------
+            // 1️⃣ BLOCK DUPLICATE ENROLLMENT (same schedule)
+            // --------------------------------------------------
+            boolean alreadyEnrolledSameSchedule =
+                    classEnrollmentRepository.existsActiveEnrollmentForSchedule(
+                            userId,
+                            scheduleId
+                    );
 
-            ensureNoScheduleOverlap(userId, date, timeSlot, schedule.getId());
+            if (alreadyEnrolledSameSchedule) {
+                logger.warn(
+                        "❌ Duplicate enrollment blocked: user {} already enrolled in schedule {}",
+                        userId, scheduleId
+                );
+                throw new RuntimeException(
+                        "Cannot enroll. You are already enrolled in this class schedule."
+                );
+            }
 
-            // Create enrollment
+            // --------------------------------------------------
+            // 2️⃣ BLOCK TIME OVERLAP (other schedules same day)
+            // --------------------------------------------------
+            logger.info(
+                    "Checking for schedule conflicts (OVERLAP) for User {} on {} at {}",
+                    userId, date, timeSlot
+            );
+
+            ensureNoScheduleOverlap(
+                    userId,
+                    date,
+                    timeSlot,
+                    scheduleId
+            );
+
+            // --------------------------------------------------
+            // 3️⃣ CREATE ENROLLMENT
+            // --------------------------------------------------
             ClassEnrollment enrollment =
-                    new ClassEnrollment(transaction.getUser(), classEntity, schedule, transaction);
+                    new ClassEnrollment(
+                            transaction.getUser(),
+                            classEntity,
+                            schedule,
+                            transaction
+                    );
+
             enrollment.setSessionCompleted(false);
 
-            logger.info("Enrollment Details - Class: {}, Schedule: {}, User: {}",
-                    classEntity.getName(), schedule.getId(), transaction.getUser().getUsername());
+            logger.info(
+                    "Enrollment Details - User: {}, Class: {}, Schedule: {}",
+                    transaction.getUser().getUsername(),
+                    classEntity.getName(),
+                    scheduleId
+            );
 
-            // Update schedule enrolled count (null-safe)
+            // --------------------------------------------------
+            // 4️⃣ UPDATE ENROLLED COUNT (null-safe)
+            // --------------------------------------------------
             Integer enrolledCountObj = schedule.getEnrolledCount();
-            int currentEnrolledCount = (enrolledCountObj != null) ? enrolledCountObj : 0;
+            int currentEnrolledCount = (enrolledCountObj != null)
+                    ? enrolledCountObj
+                    : 0;
 
             schedule.setEnrolledCount(currentEnrolledCount + 1);
             scheduleRepository.save(schedule);
 
-            logger.info("✅ Schedule enrolled count updated from {} to {}",
-                    currentEnrolledCount, schedule.getEnrolledCount());
+            logger.info(
+                    "Schedule enrolled count updated from {} to {}",
+                    currentEnrolledCount,
+                    schedule.getEnrolledCount()
+            );
 
-            ClassEnrollment savedEnrollment = classEnrollmentRepository.save(enrollment);
-            logger.info("✅ Enrollment saved with ID: {}", savedEnrollment.getId());
+            // --------------------------------------------------
+            // 5️⃣ SAVE ENROLLMENT
+            // --------------------------------------------------
+            ClassEnrollment savedEnrollment =
+                    classEnrollmentRepository.save(enrollment);
+
+            logger.info(
+                    "✅ Enrollment saved with ID: {}",
+                    savedEnrollment.getId()
+            );
             logger.info("=== ENROLLMENT CREATION COMPLETE ===");
 
         } catch (RuntimeException e) {
-            logger.error("❌ Error creating class enrollment for transaction {}: {}",
-                    transaction.getId(), e.getMessage(), e);
-            throw new RuntimeException("Failed to create class enrollment: " + e.getMessage(), e);
+            logger.error(
+                    "❌ Error creating class enrollment for transaction {}: {}",
+                    transaction.getId(),
+                    e.getMessage(),
+                    e
+            );
+            throw new RuntimeException(
+                    "Failed to create class enrollment: " + e.getMessage(),
+                    e
+            );
         }
     }
 
