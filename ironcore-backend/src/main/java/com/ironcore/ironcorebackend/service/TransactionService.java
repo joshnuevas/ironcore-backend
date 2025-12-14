@@ -1,7 +1,12 @@
 package com.ironcore.ironcorebackend.service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -72,11 +77,10 @@ public class TransactionService {
     public Transaction createTransaction(TransactionRequest request) {
         logger.info("=== CREATE TRANSACTION STARTED ===");
         logger.info("Request - UserId: {}, MembershipType: {}, ScheduleId: {}, PaymentStatus: {}",
-                request.getUserId(), request.getMembershipType(), request.getScheduleId(), request.getPaymentStatus());
-
-        logger.info("=== RECEIVED REQUEST ===");
-        logger.info("ScheduleId: {}, ClassId: {}", request.getScheduleId(), request.getClassId());
-        logger.info("PaymentStatus: {}", request.getPaymentStatus());
+                request != null ? request.getUserId() : null,
+                request != null ? request.getMembershipType() : null,
+                request != null ? request.getScheduleId() : null,
+                request != null ? request.getPaymentStatus() : null);
 
         // Validate request
         validateTransactionRequest(request);
@@ -86,13 +90,12 @@ public class TransactionService {
                 .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
 
         Transaction transaction = createTransactionEntity(request, user);
-        logger.info("Payment Status: {}", transaction.getPaymentStatus());
 
         // Generate transaction code based on type
         String transactionCode = generateTransactionCodeBasedOnRequest(request);
         transaction.setTransactionCode(transactionCode);
 
-        // Create transaction context
+        // Create transaction context (used later if payment becomes COMPLETED)
         TransactionContext context = createTransactionContext(request);
 
         // Handle transaction type
@@ -149,13 +152,18 @@ public class TransactionService {
         if (request.getPaymentStatus() == null || request.getPaymentStatus().trim().isEmpty()) {
             throw new IllegalArgumentException("Payment status cannot be null or empty");
         }
+        // If it's a class transaction, require scheduleId and classId
+        if (request.getMembershipType() == null) {
+            if (request.getScheduleId() == null || request.getClassId() == null) {
+                throw new IllegalArgumentException("Class transaction requires scheduleId and classId");
+            }
+        }
     }
 
     private Transaction createTransactionEntity(TransactionRequest request, User user) {
         Transaction transaction = new Transaction();
         transaction.setUser(user);
 
-        // Avoid unnecessary unboxing warnings
         Double processingFee = request.getProcessingFee();
         Double totalAmount = request.getTotalAmount();
         transaction.setProcessingFee(processingFee != null ? processingFee : 0.0);
@@ -197,8 +205,7 @@ public class TransactionService {
     // HANDLERS BY TYPE
     // ==============================
 
-    private void handleMembershipTransaction(Transaction transaction,
-                                             TransactionRequest request) {
+    private void handleMembershipTransaction(Transaction transaction, TransactionRequest request) {
         logger.info("✅ This is a MEMBERSHIP transaction");
         logger.info("Generated Transaction Code: {}", transaction.getTransactionCode());
 
@@ -321,6 +328,9 @@ public class TransactionService {
     // CLASS ENROLLMENT CREATION
     // ==============================
 
+    /**
+     * ✅ FIXED: checks OVERLAP (7:00-8:00 conflicts with 7:00-7:30)
+     */
     private void createClassEnrollmentFromTransaction(Transaction transaction,
                                                       Schedule schedule,
                                                       ClassEntity classEntity) {
@@ -328,28 +338,15 @@ public class TransactionService {
             logger.info("=== CREATING CLASS ENROLLMENT ===");
 
             Long userId = transaction.getUser().getId();
-            var date = schedule.getDate();
+            LocalDate date = schedule.getDate();
             String timeSlot = schedule.getTimeSlot();
 
-            // 1. Check schedule conflicts
-            logger.info("Checking for schedule conflicts for User {} on {} at {}",
+            logger.info("Checking for schedule conflicts (OVERLAP) for User {} on {} at {}",
                     userId, date, timeSlot);
 
-            List<ClassEnrollment> conflicts = classEnrollmentRepository.findConflictingSchedules(
-                    userId,
-                    date,
-                    timeSlot
-            );
+            ensureNoScheduleOverlap(userId, date, timeSlot, schedule.getId());
 
-            if (!conflicts.isEmpty()) {
-                logger.warn("❌ Schedule conflict detected. Cannot enroll user {}.", userId);
-                throw new RuntimeException(
-                        "Cannot enroll. You already booked another class on "
-                                + date + " at " + timeSlot + "."
-                );
-            }
-
-            // 2. Create enrollment
+            // Create enrollment
             ClassEnrollment enrollment =
                     new ClassEnrollment(transaction.getUser(), classEntity, schedule, transaction);
             enrollment.setSessionCompleted(false);
@@ -357,7 +354,7 @@ public class TransactionService {
             logger.info("Enrollment Details - Class: {}, Schedule: {}, User: {}",
                     classEntity.getName(), schedule.getId(), transaction.getUser().getUsername());
 
-            // 3. Update Schedule Enrollment Count (null-safe)
+            // Update schedule enrolled count (null-safe)
             Integer enrolledCountObj = schedule.getEnrolledCount();
             int currentEnrolledCount = (enrolledCountObj != null) ? enrolledCountObj : 0;
 
@@ -367,7 +364,6 @@ public class TransactionService {
             logger.info("✅ Schedule enrolled count updated from {} to {}",
                     currentEnrolledCount, schedule.getEnrolledCount());
 
-            // 4. Save enrollment
             ClassEnrollment savedEnrollment = classEnrollmentRepository.save(enrollment);
             logger.info("✅ Enrollment saved with ID: {}", savedEnrollment.getId());
             logger.info("=== ENROLLMENT CREATION COMPLETE ===");
@@ -451,7 +447,6 @@ public class TransactionService {
                     logger.warn("❓ Unknown transaction type in context");
                 }
             } else {
-                // Fallback: try to determine from transaction code
                 logger.warn("⚠️ No stored context - trying to determine from transaction code");
                 determineAndCreateDomainRecordsFromCode(transaction);
             }
@@ -486,20 +481,16 @@ public class TransactionService {
         }
     }
 
+    /**
+     * ✅ FIXED: checks OVERLAP (stored context path)
+     */
     private void createClassEnrollmentFromStoredContext(Transaction transaction, TransactionContext context) {
         try {
             logger.info("🔄 Creating class enrollment from stored context...");
             logger.info("Context - ScheduleId: {}, ClassId: {}", context.getScheduleId(), context.getClassId());
 
-            // Validate required data using Objects.requireNonNull so the analyzer knows it's non-null
-            Long scheduleId = Objects.requireNonNull(
-                    context.getScheduleId(),
-                    "ScheduleId is null in context"
-            );
-            Long classId = Objects.requireNonNull(
-                    context.getClassId(),
-                    "ClassId is null in context"
-            );
+            Long scheduleId = Objects.requireNonNull(context.getScheduleId(), "ScheduleId is null in context");
+            Long classId = Objects.requireNonNull(context.getClassId(), "ClassId is null in context");
 
             Schedule schedule = scheduleRepository.findById(scheduleId)
                     .orElseThrow(() -> new RuntimeException("Schedule not found with ID: " + scheduleId));
@@ -507,39 +498,18 @@ public class TransactionService {
             ClassEntity classEntity = classRepository.findById(classId)
                     .orElseThrow(() -> new RuntimeException("Class not found with ID: " + classId));
 
-            logger.info("✅ Found schedule: {} and class: {}", schedule.getId(), classEntity.getName());
-
             Long userId = transaction.getUser().getId();
-            var date = schedule.getDate();
+            LocalDate date = schedule.getDate();
             String timeSlot = schedule.getTimeSlot();
 
-            // 1. Check for schedule conflicts
-            logger.info("Checking for schedule conflicts for User {} on {} at {} (stored context)",
+            logger.info("Checking for schedule conflicts (OVERLAP) for User {} on {} at {} (stored context)",
                     userId, date, timeSlot);
 
-            List<ClassEnrollment> conflicts = classEnrollmentRepository.findConflictingSchedules(
-                    userId,
-                    date,
-                    timeSlot
-            );
+            ensureNoScheduleOverlap(userId, date, timeSlot, scheduleId);
 
-            if (!conflicts.isEmpty()) {
-                logger.warn("❌ Schedule conflict detected for user {} on {} at {} (stored context)",
-                        userId, date, timeSlot);
-
-                throw new RuntimeException(
-                        "Cannot enroll. You already booked another class on "
-                                + date + " at " + timeSlot + "."
-                );
-            }
-
-            // 2. Check duplicate active enrollment for same class + schedule
+            // Check duplicate active enrollment for same class + schedule
             boolean existingEnrollmentSameSchedule = classEnrollmentRepository
-                    .findByUserIdAndClassEntityIdAndScheduleId(
-                            userId,
-                            classId,
-                            scheduleId
-                    )
+                    .findByUserIdAndClassEntityIdAndScheduleId(userId, classId, scheduleId)
                     .stream()
                     .anyMatch(enrollment ->
                             enrollment.isPaid() &&
@@ -549,31 +519,26 @@ public class TransactionService {
             if (existingEnrollmentSameSchedule) {
                 logger.warn("⚠️ Active enrollment already exists for user {} in class {} and schedule {}",
                         userId, classId, scheduleId);
+                // Clean up context so it doesn't keep retrying
+                transactionContexts.remove(transaction.getId());
                 return;
             }
 
-            // 3. Create enrollment
             ClassEnrollment enrollment =
                     new ClassEnrollment(transaction.getUser(), classEntity, schedule, transaction);
             enrollment.setSessionCompleted(false);
 
-            logger.info("💾 Saving class enrollment from stored context...");
-
-            // 4. Update schedule enrolled count (null-safe)
             Integer enrolledCountObj = schedule.getEnrolledCount();
             int currentEnrolledCount = (enrolledCountObj != null) ? enrolledCountObj : 0;
 
             schedule.setEnrolledCount(currentEnrolledCount + 1);
-            logger.info("📊 Updating schedule enrollment count from {} to {} (stored context)",
-                    currentEnrolledCount, schedule.getEnrolledCount());
-
             scheduleRepository.save(schedule);
 
             ClassEnrollment savedEnrollment = classEnrollmentRepository.save(enrollment);
             logger.info("✅ Class enrollment created with ID: {}", savedEnrollment.getId());
             logger.info("✅ Schedule enrollment count updated to: {}", schedule.getEnrolledCount());
 
-            // 5. Clean up stored context
+            // Clean up stored context
             transactionContexts.remove(transaction.getId());
             logger.info("🧹 Cleaned up stored context for transaction: {}", transaction.getId());
 
@@ -636,6 +601,116 @@ public class TransactionService {
     }
 
     // ==============================
+    // TIME OVERLAP CONFLICT CHECK (CORE FIX)
+    // ==============================
+
+    private static final class TimeRange {
+        private final LocalTime start;
+        private final LocalTime end;
+
+        private TimeRange(LocalTime start, LocalTime end) {
+            this.start = start;
+            this.end = end;
+        }
+    }
+
+    /**
+     * Ensures user does not have another ACTIVE enrollment on the same date
+     * that overlaps with the given timeSlot.
+     */
+    private void ensureNoScheduleOverlap(Long userId,
+                                         LocalDate date,
+                                         String timeSlot,
+                                         Long currentScheduleId) {
+
+        if (userId == null || date == null || timeSlot == null) return;
+
+        TimeRange target = parseTimeSlot(timeSlot);
+
+        // ✅ IMPORTANT: same-day active enrollments (COMPLETED + not sessionCompleted)
+        List<ClassEnrollment> sameDay = classEnrollmentRepository.findActiveEnrollmentsOnDate(userId, date);
+
+        for (ClassEnrollment ce : sameDay) {
+            if (ce == null || ce.getSchedule() == null) continue;
+
+            Schedule existingSchedule = ce.getSchedule();
+            if (existingSchedule.getId() != null && existingSchedule.getId().equals(currentScheduleId)) {
+                continue; // ignore same schedule
+            }
+
+            String existingSlot = existingSchedule.getTimeSlot();
+            if (existingSlot == null) continue;
+
+            TimeRange existing = parseTimeSlot(existingSlot);
+
+            if (overlaps(target, existing)) {
+                logger.warn("❌ OVERLAP conflict: user {} date {} new {} overlaps existing {} (scheduleId={})",
+                        userId, date, timeSlot, existingSlot, existingSchedule.getId());
+                throw new RuntimeException(
+                        "Cannot enroll. You already booked another class that overlaps this time slot on " + date + "."
+                );
+            }
+        }
+    }
+
+    private boolean overlaps(TimeRange a, TimeRange b) {
+        // overlap if a.start < b.end && a.end > b.start
+        return a.start.isBefore(b.end) && a.end.isAfter(b.start);
+    }
+
+    private TimeRange parseTimeSlot(String timeSlot) {
+        if (timeSlot == null) {
+            throw new IllegalArgumentException("timeSlot is null");
+        }
+
+        // Supports: "7:00-8:00", "7:00 - 8:00", "7:00 to 8:00", and dash variants
+        String cleaned = timeSlot.trim()
+                .toLowerCase(Locale.ROOT)
+                .replace("–", "-")
+                .replace("—", "-")
+                .replace(" to ", "-")
+                .replaceAll("\\s+", "");
+
+        String[] parts = cleaned.split("-");
+        if (parts.length != 2) {
+            throw new IllegalArgumentException("Invalid timeSlot format: " + timeSlot);
+        }
+
+        LocalTime start = parseLocalTimeFlexible(parts[0]);
+        LocalTime end = parseLocalTimeFlexible(parts[1]);
+
+        if (!end.isAfter(start)) {
+            throw new IllegalArgumentException("Invalid timeSlot range (end <= start): " + timeSlot);
+        }
+
+        return new TimeRange(start, end);
+    }
+
+    private LocalTime parseLocalTimeFlexible(String s) {
+        if (s == null) throw new IllegalArgumentException("time value is null");
+
+        String raw = s.trim();
+
+        // 1) Try 24-hour "H:mm" (7:00, 19:30, 07:00)
+        try {
+            return LocalTime.parse(raw, DateTimeFormatter.ofPattern("H:mm"));
+        } catch (DateTimeParseException ignored) {}
+
+        // Normalize AM/PM:
+        // "7:00 AM" -> "7:00AM"
+        // "7:00 pm" -> "7:00PM"
+        String normalized = raw.toUpperCase(Locale.ROOT).replaceAll("\\s+", "");
+
+        // 2) Try "h:mma" (7:00AM, 12:30PM)
+        try {
+            return LocalTime.parse(normalized, DateTimeFormatter.ofPattern("h:mma", Locale.ROOT));
+        } catch (DateTimeParseException ignored) {}
+
+        // 3) Try "hh:mma" (07:00AM)
+        return LocalTime.parse(normalized, DateTimeFormatter.ofPattern("hh:mma", Locale.ROOT));
+    }
+
+    // ==============================
     // TRANSACTION CONTEXT CLASS
     // ==============================
 
@@ -645,46 +720,23 @@ public class TransactionService {
         private Long classId;
         private String className;
 
-        public String getMembershipType() {
-            return membershipType;
-        }
+        public String getMembershipType() { return membershipType; }
+        public void setMembershipType(String membershipType) { this.membershipType = membershipType; }
 
-        public void setMembershipType(String membershipType) {
-            this.membershipType = membershipType;
-        }
+        public Long getScheduleId() { return scheduleId; }
+        public void setScheduleId(Long scheduleId) { this.scheduleId = scheduleId; }
 
-        public Long getScheduleId() {
-            return scheduleId;
-        }
+        public Long getClassId() { return classId; }
+        public void setClassId(Long classId) { this.classId = classId; }
 
-        public void setScheduleId(Long scheduleId) {
-            this.scheduleId = scheduleId;
-        }
-
-        public Long getClassId() {
-            return classId;
-        }
-
-        public void setClassId(Long classId) {
-            this.classId = classId;
-        }
-
-        public String getClassName() {
-            return className;
-        }
-
-        public void setClassName(String className) {
-            this.className = className;
-        }
+        public String getClassName() { return className; }
+        public void setClassName(String className) { this.className = className; }
 
         @Override
         public String toString() {
             return String.format(
                     "TransactionContext{membershipType='%s', scheduleId=%s, classId=%s, className='%s'}",
-                    membershipType,
-                    scheduleId,
-                    classId,
-                    className
+                    membershipType, scheduleId, classId, className
             );
         }
     }
@@ -778,6 +830,7 @@ public class TransactionService {
         transaction.setPaymentStatus(PaymentStatus.COMPLETED);
         transaction.setPaymentDate(LocalDateTime.now());
         transaction.setTransactionCode(generateTransactionCode(membershipType));
+        transaction.setTransactionType(TransactionType.MEMBERSHIP);
 
         Transaction savedTransaction = transactionRepository.save(transaction);
 
@@ -838,13 +891,12 @@ public class TransactionService {
         try {
             logger.info("=== DEBUG TRANSACTION CONTEXT ===");
 
-            Long key = transactionId; // autobox for map key
+            Long key = transactionId;
 
             TransactionContext context = transactionContexts.get(key);
             logger.info("Stored Context for ID {}: {}", key, context);
 
-            Transaction transaction = transactionRepository.findById(key)
-                    .orElse(null);
+            Transaction transaction = transactionRepository.findById(key).orElse(null);
             logger.info("Transaction: {}", transaction);
 
             String className = (context != null ? context.getClassName() : null);
