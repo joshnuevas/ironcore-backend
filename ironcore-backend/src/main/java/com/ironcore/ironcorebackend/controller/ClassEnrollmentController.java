@@ -50,7 +50,7 @@ public class ClassEnrollmentController {
     /**
      * Get a single enrollment by ID.
      */
-    @GetMapping("/{enrollmentId}")
+    @GetMapping("/id/{enrollmentId}")
     public ResponseEntity<ClassEnrollment> getEnrollmentById(@PathVariable Long enrollmentId) {
         Optional<ClassEnrollment> enrollment = classEnrollmentService.getEnrollmentById(enrollmentId);
         return enrollment
@@ -90,5 +90,15 @@ public class ClassEnrollmentController {
         ScheduleConflictResponse response =
                 classEnrollmentService.checkScheduleConflict(userId, scheduleId);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/check-duplicate")
+    public ResponseEntity<?> checkDuplicate(
+            @RequestParam Long userId,
+            @RequestParam Long classId,
+            @RequestParam Long scheduleId
+    ) {
+        boolean alreadyBooked = classEnrollmentService.hasActiveEnrollmentSameClassSameSchedule(userId, classId, scheduleId);
+        return ResponseEntity.ok(java.util.Map.of("alreadyBooked", alreadyBooked));
     }
 }

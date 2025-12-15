@@ -347,20 +347,16 @@ public class TransactionService {
             // --------------------------------------------------
             // 1️⃣ BLOCK DUPLICATE ENROLLMENT (same schedule)
             // --------------------------------------------------
-            boolean alreadyEnrolledSameSchedule =
-                    classEnrollmentRepository.existsActiveEnrollmentForSchedule(
+            // 1️⃣ BLOCK DUPLICATE ENROLLMENT (same class + same schedule)
+            boolean alreadyEnrolledSameClassSameSchedule =
+                    classEnrollmentRepository.existsActiveEnrollmentSameClassSameSchedule(
                             userId,
+                            classEntity.getId(),
                             scheduleId
                     );
 
-            if (alreadyEnrolledSameSchedule) {
-                logger.warn(
-                        "❌ Duplicate enrollment blocked: user {} already enrolled in schedule {}",
-                        userId, scheduleId
-                );
-                throw new RuntimeException(
-                        "Cannot enroll. You are already enrolled in this class schedule."
-                );
+            if (alreadyEnrolledSameClassSameSchedule) {
+                throw new RuntimeException("Cannot enroll. You already booked this class schedule.");
             }
 
             // --------------------------------------------------

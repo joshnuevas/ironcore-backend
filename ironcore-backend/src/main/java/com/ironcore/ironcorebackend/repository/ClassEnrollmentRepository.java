@@ -114,4 +114,19 @@ public interface ClassEnrollmentRepository extends JpaRepository<ClassEnrollment
     @Transactional
     @Query("DELETE FROM ClassEnrollment ce WHERE ce.schedule.id = :scheduleId")
     void deleteByScheduleId(Long scheduleId);
+
+    @Query("""
+    SELECT COUNT(ce) > 0
+    FROM ClassEnrollment ce
+    WHERE ce.user.id = :userId
+        AND ce.classEntity.id = :classId
+        AND ce.schedule.id = :scheduleId
+        AND ce.transaction.paymentStatus = com.ironcore.ironcorebackend.entity.PaymentStatus.COMPLETED
+        AND (ce.sessionCompleted = false OR ce.sessionCompleted IS NULL)
+    """)
+    boolean existsActiveEnrollmentSameClassSameSchedule(
+        @Param("userId") Long userId,
+        @Param("classId") Long classId,
+        @Param("scheduleId") Long scheduleId
+    );
 }

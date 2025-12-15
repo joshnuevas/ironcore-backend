@@ -227,4 +227,9 @@ public class ClassEnrollmentService {
         // overlap if a.start < b.end && a.end > b.start
         return a.start.isBefore(b.end) && a.end.isAfter(b.start);
     }
+
+    public boolean hasActiveEnrollmentSameClassSameSchedule(Long userId, Long classId, Long scheduleId) {
+        return classEnrollmentRepository.existsActiveEnrollmentSameClassSameSchedule(userId, classId, scheduleId);
+    }
+
 }

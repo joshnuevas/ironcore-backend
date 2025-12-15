@@ -195,12 +195,12 @@ public class TransactionController {
     //  🔹 CHECK ACTIVE ENROLLMENT
     // =====================================================
     @GetMapping("/check-active-enrollment")
-    public ResponseEntity<Boolean> checkActiveEnrollment(
+    public ResponseEntity<Map<String, Object>> checkActiveEnrollment(
             @RequestParam Long userId,
             @RequestParam Long classId
     ) {
         boolean active = transactionService.hasActiveEnrollment(userId, classId);
-        return ResponseEntity.ok(active);
+        return ResponseEntity.ok(Map.of("hasActiveEnrollment", active));
     }
 
     // =====================================================
